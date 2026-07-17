@@ -81,3 +81,7 @@ Please open an issue if anything goes wrong
 | Toggle Effects | `End` | Enable/disable all effects |
 | Reload Config | `F10` | Reload configuration and recompile shaders |
 | Toggle Overlay | `Home` | Show/hide the overlay GUI |
+
+### Special Thanks To
+slobodaapl, for making vkShade which is the direct source code reprise of this project
+DadSchoorse, for making vkBasalt, which the original vkShade is based on
