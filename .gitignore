@@ -8,24 +8,4 @@ imgui.ini
 build-debug.sh
 .cache/
 
-# Nix
-result
-result-*
-flake.lock
-
-# AI tracking (local only)
-AI-progress.json
-AI-tasks.json
-.direnv
-.envrc
-
-# AI context (local-only, never track)
-CLAUDE.md
-GEMINI.md
-.claude/
-.gemini/
-AI-progress.json
-AI-tasks.json
-.ai-context/
-.planning/
-.session-handoff.md
+.flatpak-*/
