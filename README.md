@@ -59,7 +59,7 @@ The base project required editing config files and restarting. vkShade adds:
 
 ### Depth Buffer
 
-The layer automatically picks a depth buffer that fits the game window, which in almost all cases works perfectly.s
+The layer automatically picks a depth buffer that fits the game window, which in almost all cases works perfectly.
 
 ### ReShade Shader Support
 
