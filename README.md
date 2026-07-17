@@ -84,4 +84,5 @@ Please open an issue if anything goes wrong
 
 ### Special Thanks To
 slobodaapl, for making vkShade which is the direct source code reprise of this project
+
 DadSchoorse, for making vkBasalt, which the original vkShade is based on
