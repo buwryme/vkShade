@@ -3,12 +3,13 @@
 [![License](https://img.shields.io/badge/license-zlib-green)](./LICENSE)
 [![NixOS](https://img.shields.io/badge/NixOS-unstable-78C0E8?logo=nixos&logoColor=white)](https://nixos.org)
 
-A Vulkan post-processing layer with an in-game ImGui overlay for real-time effect configuration. Works on both **X11** and **Wayland**. Based off of vkShade, and adds:
+A Flatpak/Sober-first fork of vkShade which also adds:
 - Parallel depth buffer tracking
 - Automatic preference of depth buffers that match the current window size
 - More resolve ways to handle depth buffers
 - A nicer-ish UI
-And all of these help form a post effects processing experience just like ReShade, but accessible to Linux.
+
+These help form a post effects processing experience just like ReShade, but accessible to Linux.
 
 **If depth-dependent effects look wrong, please go into Advanced and choose a depth buffer that matches your game window,**
 **And make sure your depth resolve mode is set to Reverse-Z.**
@@ -18,7 +19,7 @@ And all of these help form a post effects processing experience just like ReShad
 In theory, this wouldn't get you banned in most games since it's driver-level, but..
 You still hold responsibility for moderation you get from using vkShade.
 
-To set it up for Sober, run ./setup_sober.sh
+To set it up for Sober, run `./setup_sober.sh`
 
 ## Features
 
@@ -55,11 +56,11 @@ The layer automatically picks a depth buffer that fits the game window, which in
 
 ### ReShade Shader Support
 
-The setup_sober.sh script fetches all ReShade shaders and sets them up for you.
+The `setup_sober.sh` script fetches all ReShade shaders and sets them up for you.
 
 ## Usage
 
-The setup_sober.sh script:
+The `setup_sober.sh` script:
 - Fetches org.gnome.Sdk if necessary
 - Compiles the project locally
 - Installs it as a local Flatpak repo and Vulkan Layer extension
