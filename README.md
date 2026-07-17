@@ -12,14 +12,21 @@ A Flatpak/Sober-first fork of vkShade which also adds:
 These help form a post effects processing experience just like ReShade, but accessible to Linux.
 
 **If depth-dependent effects look wrong, please go into Advanced and choose a depth buffer that matches your game window,**
-**And make sure your depth resolve mode is set to Reverse-Z.**
+**and make sure your depth resolve mode is set to Reverse-Z.**
 
 
-**Use at your own risk**: unstable shaders or extreme GPU load can still crash or freeze games.
-In theory, this wouldn't get you banned in most games since it's driver-level, but..
-You still hold responsibility for moderation you get from using vkShade.
+
 
 To set it up for Sober, run `./setup_sober.sh`
+
+## Disclaimer
+
+**Use at your own risk**: 
+- unstable shaders or extreme GPU load can still crash or freeze games.
+- vkShade is driver-level but can still get you moderated
+- this is a very experimental project that has yet to improve.
+
+The codebase needs a lot of work and removage of extra unneeded features slobodaapl/vkShade bundles in...
 
 ## Features
 
