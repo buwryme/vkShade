@@ -2,7 +2,9 @@
 
 namespace vkShade
 {
-    VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, std::vector<VkDescriptorSetLayout> descriptorSetLayouts)
+    VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, 
+                                                   std::vector<VkDescriptorSetLayout> descriptorSetLayouts,
+                                                   std::vector<VkPushConstantRange> pushConstantRanges)
     {
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo;
         pipelineLayoutCreateInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -10,12 +12,12 @@ namespace vkShade
         pipelineLayoutCreateInfo.flags                  = 0;
         pipelineLayoutCreateInfo.setLayoutCount         = descriptorSetLayouts.size();
         pipelineLayoutCreateInfo.pSetLayouts            = descriptorSetLayouts.data();
-        pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-        pipelineLayoutCreateInfo.pPushConstantRanges    = nullptr;
+        pipelineLayoutCreateInfo.pushConstantRangeCount = pushConstantRanges.size();
+        pipelineLayoutCreateInfo.pPushConstantRanges    = pushConstantRanges.empty() ? nullptr : pushConstantRanges.data();
 
         VkPipelineLayout pipelineLayout;
         VkResult result = pLogicalDevice->vkd.CreatePipelineLayout(pLogicalDevice->device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
         return pipelineLayout;
     }
 
@@ -174,7 +176,7 @@ namespace vkShade
         pipelineCreateInfo.basePipelineIndex   = -1;
 
         result = pLogicalDevice->vkd.CreateGraphicsPipelines(pLogicalDevice->device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
 
         return pipeline;
     }

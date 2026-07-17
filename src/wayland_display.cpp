@@ -4,30 +4,31 @@
 
 #include <cstdlib>
 #include <string>
+#include <atomic>
 
 namespace vkShade
 {
-    static wl_display* waylandDisplay = nullptr;
-    static wl_surface* waylandSurface = nullptr;
-    static int waylandChecked = -1; // -1 = unchecked, 0 = no, 1 = yes
-    static bool nonWaylandSurface = false;
+    static std::atomic<wl_display*> waylandDisplay{nullptr};
+    static std::atomic<wl_surface*> waylandSurface{nullptr};
+    static std::atomic<int> waylandChecked{-1}; // -1 = unchecked, 0 = no, 1 = yes
+    static std::atomic<bool> nonWaylandSurfaceFlag{false};
 
     void setWaylandDisplay(wl_display* display)
     {
         if (!display)
             return;
 
-        if (nonWaylandSurface)
+        if (nonWaylandSurfaceFlag.load(std::memory_order_acquire))
             return;
 
-        waylandDisplay = display;
-        waylandChecked = 1;
+        waylandDisplay.store(display, std::memory_order_release);
+        waylandChecked.store(1, std::memory_order_release);
         Logger::info("captured Wayland display from vkCreateWaylandSurfaceKHR");
     }
 
     wl_display* getWaylandDisplay()
     {
-        return waylandDisplay;
+        return waylandDisplay.load(std::memory_order_acquire);
     }
 
     void setWaylandSurface(wl_surface* surface)
@@ -35,54 +36,56 @@ namespace vkShade
         if (!surface)
             return;
 
-        if (nonWaylandSurface)
+        if (nonWaylandSurfaceFlag.load(std::memory_order_acquire))
             return;
 
-        waylandSurface = surface;
+        waylandSurface.store(surface, std::memory_order_release);
         Logger::info("captured Wayland surface from vkCreateWaylandSurfaceKHR");
     }
 
     wl_surface* getWaylandSurface()
     {
-        return waylandSurface;
+        return waylandSurface.load(std::memory_order_acquire);
     }
 
     bool isWayland()
     {
-        if (nonWaylandSurface)
+        if (nonWaylandSurfaceFlag.load(std::memory_order_acquire))
             return false;
 
-        if (waylandChecked >= 0)
-            return waylandChecked == 1;
+        int checked = waylandChecked.load(std::memory_order_acquire);
+        if (checked >= 0)
+            return checked == 1;
 
         // Only enable the Wayland input backend after we actually intercepted
         // vkCreateWaylandSurfaceKHR and captured the game's wl_display/surface.
         // This avoids false positives on Xwayland apps where WAYLAND_DISPLAY
         // exists in the session but Vulkan uses Xlib/Xcb surfaces.
-        if (waylandDisplay != nullptr || waylandSurface != nullptr)
+        if (waylandDisplay.load(std::memory_order_acquire) != nullptr
+            || waylandSurface.load(std::memory_order_acquire) != nullptr)
         {
-            waylandChecked = 1;
+            waylandChecked.store(1, std::memory_order_release);
             return true;
         }
 
-        waylandChecked = 0;
+        waylandChecked.store(0, std::memory_order_release);
         return false;
     }
 
     bool isNonWaylandSurface()
     {
-        return nonWaylandSurface;
+        return nonWaylandSurfaceFlag.load(std::memory_order_acquire);
     }
 
     void markNonWaylandSurface(const char* source)
     {
-        if (nonWaylandSurface)
+        if (nonWaylandSurfaceFlag.load(std::memory_order_acquire))
             return;
 
-        nonWaylandSurface = true;
-        waylandDisplay = nullptr;
-        waylandSurface = nullptr;
-        waylandChecked = 0;
+        nonWaylandSurfaceFlag.store(true, std::memory_order_release);
+        waylandDisplay.store(nullptr, std::memory_order_release);
+        waylandSurface.store(nullptr, std::memory_order_release);
+        waylandChecked.store(0, std::memory_order_release);
         if (source && *source)
             Logger::warn(std::string("unsupported non-Wayland Vulkan surface via ") + source + "; vkShade will pass through only");
         else

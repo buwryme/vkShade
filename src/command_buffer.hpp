@@ -21,7 +21,8 @@ namespace vkShade
     void writeCommandBuffers(LogicalDevice*                                 pLogicalDevice,
                              LogicalSwapchain*                              pLogicalSwapchain,
                              std::vector<std::shared_ptr<vkShade::Effect>> effects,
-                             std::vector<VkCommandBuffer>                   commandBuffers);
+                             std::vector<VkCommandBuffer>                   commandBuffers,
+                             const DepthState&                              depthState);
 
     void recordDepthResolveSnapshot(LogicalDevice*            pLogicalDevice,
                                     LogicalSwapchain*         pLogicalSwapchain,

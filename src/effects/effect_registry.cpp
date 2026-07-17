@@ -169,26 +169,52 @@ namespace vkShade
             if (!resolvedConfiguredPath.empty())
                 return resolvedConfiguredPath;
 
-            // Search in reshadeIncludePath from config (colon-separated list)
+            // Collect all search directories
+            std::vector<std::string> searchDirs;
+
+            // reshadeIncludePath from config (colon-separated)
             std::string includePath = pConfig->getOption<std::string>("reshadeIncludePath", "");
             if (!includePath.empty())
             {
-                std::vector<std::string> includeDirs;
                 std::stringstream ss(includePath);
                 std::string dir;
                 while (std::getline(ss, dir, ':'))
                 {
                     if (!dir.empty())
-                        includeDirs.push_back(dir);
+                        searchDirs.push_back(dir);
                 }
-                path = searchDirsForEffect(name, includeDirs);
-                if (!path.empty())
-                    return path;
             }
 
-            // Search in shader manager discovered paths
+            // Shader manager paths
             ShaderManagerConfig shaderMgrConfig = ConfigSerializer::loadShaderManagerConfig();
-            path = searchDirsForEffect(name, shaderMgrConfig.discoveredShaderPaths);
+
+            // Discovered shader paths
+            for (const auto& p : shaderMgrConfig.discoveredShaderPaths)
+                searchDirs.push_back(p);
+
+            // Parent directories — scan for Shaders/ subdirectories and also
+            // search the parent dir itself (users may keep .fx files flat)
+            for (const auto& parentDir : shaderMgrConfig.parentDirectories)
+            {
+                searchDirs.push_back(parentDir);  // search directly
+                try
+                {
+                    for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                             parentDir, std::filesystem::directory_options::skip_permission_denied))
+                    {
+                        if (!entry.is_directory())
+                            continue;
+                        std::string dirName = entry.path().filename().string();
+                        std::transform(dirName.begin(), dirName.end(), dirName.begin(), ::tolower);
+                        if (dirName == "shaders")
+                            searchDirs.push_back(entry.path().string());
+                    }
+                }
+                catch (const std::filesystem::filesystem_error&) {}
+            }
+
+            // Search all collected directories
+            path = searchDirsForEffect(name, searchDirs);
             if (!path.empty())
                 return path;
 
@@ -595,10 +621,8 @@ namespace vkShade
                 {
                     Logger::info("EffectRegistry: shader file changed on disk, re-parsing: " + instanceName);
                     // Remove the stale entry so we re-parse below
-                    effects.erase(
-                        std::remove_if(effects.begin(), effects.end(),
-                            [&](const EffectConfig& e) { return e.name == instanceName; }),
-                        effects.end());
+                    effects.remove_if(
+                        [&](const EffectConfig& e) { return e.name == instanceName; });
                 }
                 else
                 {
@@ -620,10 +644,8 @@ namespace vkShade
     void EffectRegistry::removeEffect(const std::string& name)
     {
         std::lock_guard<std::mutex> lock(mutex);
-        effects.erase(
-            std::remove_if(effects.begin(), effects.end(),
-                [&](const EffectConfig& e) { return e.name == name; }),
-            effects.end());
+        effects.remove_if(
+            [&](const EffectConfig& e) { return e.name == name; });
     }
 
     // Per-instance empty vector for returning when effect not found (avoids shared mutable static)

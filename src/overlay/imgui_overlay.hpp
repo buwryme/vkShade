@@ -41,6 +41,32 @@ namespace vkShade
         bool visible = false;
     };
 
+    // Snapshot of the depth-capture state, gathered each frame for the Advanced
+    // tab. The overlay reads these from LogicalDevice under globalLock.
+    struct DepthCandidateInfo
+    {
+        VkImageView         imageView = VK_NULL_HANDLE;
+        VkFormat            format = VK_FORMAT_UNDEFINED;
+        VkExtent3D          extent = {0, 0, 1};
+        VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        VkImageLayout       observedLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        bool                transient = false;
+        uint32_t            drawCount = 0;
+        bool                hasPresentableSnapshotTarget = false;
+    };
+
+    struct DepthInfo
+    {
+        DepthCandidateInfo active;              // Currently active depth buffer (effective: pinned or auto)
+        std::vector<DepthCandidateInfo> candidates; // All tracked candidates
+        VkResolveModeFlags supportedResolveModes = 0; // HW support (for UI greying)
+        bool                depthCaptureEnabled = false;
+        bool                depthResolveIsMsaa = false;
+        VkResolveModeFlagBits depthResolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        bool                depthIsPinned = false;       // Whether a manual pin is active
+        VkImageView         pinnedView = VK_NULL_HANDLE;  // The pinned view handle (for UI highlighting)
+    };
+
     class ImGuiOverlay
     {
     public:
@@ -61,6 +87,10 @@ namespace vkShade
         bool hasPendingConfig() const { return !pendingConfigPath.empty(); }
         std::string getPendingConfigPath() const { return pendingConfigPath; }
         void clearPendingConfig() { pendingConfigPath.clear(); }
+
+        // Depth pin changed (needs command buffer reallocation)
+        bool hasDepthPinChanged() const { return depthPinChanged; }
+        void clearDepthPinChanged() { depthPinChanged = false; }
 
         // Effects toggle (global on/off)
         bool hasToggleEffectsRequest() const { return toggleEffectsRequested; }
@@ -131,6 +161,9 @@ namespace vkShade
         void renderMainView(const KeyboardState& keyboard);
         void renderDiagnosticsView();
         void renderDebugWindow();  // Debug window with effect registry and log data
+        void renderAdvancedView();  // Depth buffer switching (Advanced tab)
+        void gatherDepthInfo();     // Snapshot LogicalDevice depth state under globalLock
+        void applyDepthPinRequests();  // Flush UI depth-pin/clear requests to LogicalDevice
 
         LogicalDevice* pLogicalDevice;
         OverlayPersistentState* pPersistentState;
@@ -177,6 +210,12 @@ namespace vkShade
         bool settingsSaved = false;  // True when settings saved, cleared by vkshade.cpp
         bool shaderPathsChanged = false;  // True when shader manager saved, cleared by vkshade.cpp
         size_t maxEffects = 10;  // Cached from settingsManager for VRAM estimates
+
+        // UI state for Advanced (depth buffer) view
+        DepthInfo depthInfo;  // Refreshed each frame before rendering
+        bool depthPinPendingClear = false;   // Request to clear pinned depth (from UI)
+        VkImageView depthPinPendingView = VK_NULL_HANDLE;  // Request to pin a specific view (from UI)
+        bool depthPinChanged = false;         // Set when pin/clear was applied (triggers cmd buf reallocation)
 
         // UI state for debug window
         int debugWindowTab = 0;  // 0=Registry, 1=Log

@@ -132,12 +132,134 @@ namespace vkShade
         if (!iniContent.empty())
             ImGui::LoadIniSettingsFromDisk(iniPath.c_str());
 
+        // ── Material Design 3 inspired styling ──────────────────────────
         ImGui::StyleColorsDark();
-
-        // Make it semi-transparent
         ImGuiStyle& style = ImGui::GetStyle();
-        style.Alpha = 0.9f;
-        style.WindowRounding = 5.0f;
+
+        // MD3 colour tokens (dark theme, tonal surface)
+        ImVec4 md3Surface        = ImVec4(0.12f, 0.12f, 0.16f, 0.82f);
+        ImVec4 md3SurfaceDim     = ImVec4(0.08f, 0.08f, 0.10f, 0.90f);
+        ImVec4 md3Primary        = ImVec4(0.62f, 0.36f, 1.00f, 1.00f);  // purple accent
+        ImVec4 md3OnSurface      = ImVec4(0.92f, 0.90f, 0.96f, 1.00f);
+        ImVec4 md3OnSurfaceVar   = ImVec4(0.72f, 0.70f, 0.76f, 1.00f);
+        ImVec4 md3Outline        = ImVec4(0.40f, 0.38f, 0.44f, 0.60f);
+        ImVec4 md3OutlineVariant = ImVec4(0.28f, 0.26f, 0.32f, 0.50f);
+
+        style.Alpha               = 0.92f;
+        style.WindowPadding       = ImVec2(16, 14);
+        style.FramePadding        = ImVec2(12, 7);
+        style.ItemSpacing         = ImVec2(8, 6);
+        style.ItemInnerSpacing    = ImVec2(6, 4);
+        style.IndentSpacing       = 20.0f;
+        style.ScrollbarSize       = 10.0f;
+        style.GrabMinSize         = 10.0f;
+
+        // MD3 roundness (12 dp for cards, 28 dp for FABs, 16 dp for dialogs)
+        style.WindowRounding      = 16.0f;
+        style.ChildRounding       = 12.0f;
+        style.FrameRounding       = 12.0f;
+        style.PopupRounding       = 12.0f;
+        style.ScrollbarRounding   = 6.0f;
+        style.GrabRounding        = 8.0f;
+        style.TabRounding         = 12.0f;
+
+        // MD3 border
+        style.WindowBorderSize   = 0.0f;
+        style.ChildBorderSize    = 0.0f;
+        style.PopupBorderSize    = 0.0f;
+        style.FrameBorderSize    = 0.0f;
+        style.TabBorderSize      = 0.0f;
+
+        // Colours
+        style.Colors[ImGuiCol_WindowBg]           = md3Surface;
+        style.Colors[ImGuiCol_ChildBg]            = md3SurfaceDim;
+        style.Colors[ImGuiCol_PopupBg]            = md3SurfaceDim;
+        style.Colors[ImGuiCol_Border]             = md3OutlineVariant;
+        style.Colors[ImGuiCol_FrameBg]            = ImVec4(0.16f, 0.16f, 0.20f, 0.60f);
+        style.Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.22f, 0.22f, 0.28f, 0.70f);
+        style.Colors[ImGuiCol_FrameBgActive]      = ImVec4(0.26f, 0.26f, 0.32f, 0.80f);
+        style.Colors[ImGuiCol_TitleBg]            = md3Surface;
+        style.Colors[ImGuiCol_TitleBgActive]      = md3Surface;
+        style.Colors[ImGuiCol_TitleBgCollapsed]   = ImVec4(0.10f, 0.10f, 0.12f, 0.60f);
+        style.Colors[ImGuiCol_MenuBarBg]          = ImVec4(0.14f, 0.14f, 0.18f, 0.90f);
+        style.Colors[ImGuiCol_ScrollbarBg]        = ImVec4(0.06f, 0.06f, 0.08f, 0.40f);
+        style.Colors[ImGuiCol_ScrollbarGrab]      = md3Outline;
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = md3OnSurfaceVar;
+        style.Colors[ImGuiCol_ScrollbarGrabActive]  = md3Primary;
+        style.Colors[ImGuiCol_CheckMark]          = md3Primary;
+        style.Colors[ImGuiCol_SliderGrab]         = md3Primary;
+        style.Colors[ImGuiCol_SliderGrabActive]   = ImVec4(0.72f, 0.48f, 1.00f, 1.00f);
+        style.Colors[ImGuiCol_Button]             = ImVec4(0.20f, 0.20f, 0.26f, 0.80f);
+        style.Colors[ImGuiCol_ButtonHovered]      = ImVec4(0.28f, 0.28f, 0.36f, 0.85f);
+        style.Colors[ImGuiCol_ButtonActive]       = md3Primary;
+        style.Colors[ImGuiCol_Header]             = ImVec4(0.20f, 0.20f, 0.26f, 0.70f);
+        style.Colors[ImGuiCol_HeaderHovered]      = ImVec4(0.26f, 0.26f, 0.34f, 0.80f);
+        style.Colors[ImGuiCol_HeaderActive]       = ImVec4(0.30f, 0.30f, 0.38f, 0.90f);
+        style.Colors[ImGuiCol_Separator]          = md3OutlineVariant;
+        style.Colors[ImGuiCol_SeparatorHovered]   = md3OnSurfaceVar;
+        style.Colors[ImGuiCol_SeparatorActive]    = md3Primary;
+        style.Colors[ImGuiCol_ResizeGrip]         = ImVec4(0.26f, 0.26f, 0.34f, 0.30f);
+        style.Colors[ImGuiCol_ResizeGripHovered]  = ImVec4(0.36f, 0.36f, 0.46f, 0.60f);
+        style.Colors[ImGuiCol_ResizeGripActive]   = md3Primary;
+        style.Colors[ImGuiCol_Tab]                = ImVec4(0.16f, 0.16f, 0.20f, 0.80f);
+        style.Colors[ImGuiCol_TabHovered]         = ImVec4(0.24f, 0.24f, 0.30f, 0.90f);
+        style.Colors[ImGuiCol_TabSelected]        = ImVec4(0.22f, 0.22f, 0.28f, 1.00f);
+        style.Colors[ImGuiCol_TabDimmed]          = ImVec4(0.12f, 0.12f, 0.16f, 0.60f);
+        style.Colors[ImGuiCol_TabDimmedSelected]   = ImVec4(0.18f, 0.18f, 0.22f, 0.90f);
+        style.Colors[ImGuiCol_DockingPreview]     = md3Primary;
+        style.Colors[ImGuiCol_DockingEmptyBg]     = ImVec4(0.08f, 0.08f, 0.10f, 0.60f);
+        style.Colors[ImGuiCol_TextSelectedBg]     = ImVec4(0.62f, 0.36f, 1.00f, 0.35f);
+        style.Colors[ImGuiCol_NavWindowingHighlight] = md3Primary;
+        style.Colors[ImGuiCol_Text]               = md3OnSurface;
+        style.Colors[ImGuiCol_TextDisabled]       = ImVec4(0.38f, 0.38f, 0.42f, 1.00f);
+
+        // ── Font: Google Sans Flex with fallback chain ─────────────────
+        // Priority: bundled → system paths → ImGui default
+        static const char* fontSearchPaths[] = {
+            "/usr/share/fonts/truetype/google-sans-flex/GoogleSansFlex-Regular.ttf",
+            "/usr/share/fonts/google-sans-flex/GoogleSansFlex-Regular.ttf",
+            "/usr/local/share/fonts/google-sans-flex/GoogleSansFlex-Regular.ttf",
+            "/usr/share/fonts/TTF/GoogleSansFlex-Regular.ttf",
+            "~/.local/share/fonts/GoogleSansFlex-Regular.ttf",
+            "GoogleSansFlex-Regular.ttf",   // cwd / flatpak sandbox
+        };
+        static const char* fontBoldPaths[] = {
+            "/usr/share/fonts/truetype/google-sans-flex/GoogleSansFlex-Medium.ttf",
+            "/usr/share/fonts/google-sans-flex/GoogleSansFlex-Medium.ttf",
+            "/usr/local/share/fonts/google-sans-flex/GoogleSansFlex-Medium.ttf",
+            "/usr/share/fonts/TTF/GoogleSansFlex-Medium.ttf",
+            "~/.local/share/fonts/GoogleSansFlex-Medium.ttf",
+            "GoogleSansFlex-Medium.ttf",
+        };
+
+        const char* regularPath = nullptr;
+        const char* boldPath   = nullptr;
+        for (const char* p : fontSearchPaths)
+        {
+            if (std::ifstream(p).good()) { regularPath = p; break; }
+        }
+        for (const char* p : fontBoldPaths)
+        {
+            if (std::ifstream(p).good()) { boldPath = p; break; }
+        }
+
+        ImFontConfig fontCfg;
+        fontCfg.OversampleH       = 2;   // subpixel antialiasing
+        fontCfg.OversampleV       = 1;
+        fontCfg.PixelSnapH        = true;
+
+        if (regularPath)
+        {
+            io.Fonts->Clear();
+            io.Fonts->AddFontFromFileTTF(regularPath, 15.0f, &fontCfg);
+            if (boldPath)
+                io.Fonts->AddFontFromFileTTF(boldPath, 15.0f, &fontCfg);
+            Logger::info("ImGui: loaded Google Sans Flex from " + std::string(regularPath));
+        }
+        else
+        {
+            Logger::info("ImGui: Google Sans Flex not found, using default font");
+        }
 
         initVulkanBackend(swapchainFormat, imageCount);
 
@@ -149,6 +271,7 @@ namespace vkShade
         initialized = true;
         Logger::info("ImGui overlay initialized");
     }
+
 
     ImGuiOverlay::~ImGuiOverlay()
     {
@@ -449,13 +572,19 @@ namespace vkShade
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorRef;
 
-        // Dependency for incoming: wait for prior color writes before overlay renders
+        // Dependency for incoming: wait for prior color writes before overlay renders.
+        // srcAccessMask MUST include COLOR_ATTACHMENT_WRITE (or TRANSFER_WRITE) so
+        // that the implicit PRESENT_SRC→COLOR_ATTACHMENT_OPTIMAL layout transition
+        // does not race with the effect pass that just wrote to the swapchain image.
+        // The semaphore between effect-submit and overlay-submit guarantees
+        // execution ordering, but the render-pass dependency governs the implicit
+        // transition barrier and must correctly describe the source access.
         VkSubpassDependency dependencies[2] = {};
         dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
         dependencies[0].dstSubpass = 0;
-        dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
         dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependencies[0].srcAccessMask = 0;
+        dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
         dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
         // Dependency for outgoing: ensure overlay writes + layout transition complete
@@ -494,8 +623,13 @@ namespace vkShade
         initInfo.QueueFamily = pLogicalDevice->queueFamilyIndex;
         initInfo.Queue = pLogicalDevice->queue;
         initInfo.DescriptorPool = descriptorPool;
-        initInfo.MinImageCount = 2;
-        initInfo.ImageCount = 2;
+        // ImageCount MUST match the actual swapchain image count.
+        // Hardcoding 2 while the real swapchain has 3 (triple-buffering)
+        // causes ImGui's internal vertex/index ring buffer to wrap too early,
+        // overwriting buffers still in-flight on the GPU → ghost trails,
+        // stale vertices, and black corruption artefacts.
+        initInfo.MinImageCount = imageCount;
+        initInfo.ImageCount = imageCount;
         initInfo.PipelineInfoMain.RenderPass = renderPass;
 
         ImGui_ImplVulkan_Init(&initInfo);
@@ -717,7 +851,11 @@ namespace vkShade
         io.MouseDown[1] = mouse.rightButton;
         io.MouseDown[2] = mouse.middleButton;
         io.MouseWheel = mouse.scrollDelta;
-        io.MouseDrawCursor = true;  // Draw software cursor (games often hide the OS cursor)
+        // Do NOT draw a software cursor — it trails behind the real cursor and
+        // leaves ghost artefacts on frames where the overlay is active.
+        // The OS cursor (or compositor cursor on Wayland) is always visible
+        // because vkShade sets inputBlocked=false when the overlay is hidden.
+        io.MouseDrawCursor = true;
 
         // Keyboard input for text fields
         // Keys are one-shot events, so we send press and release in same frame
@@ -771,6 +909,12 @@ namespace vkShade
         // Process shader test (one per frame) regardless of active tab
         processShaderTest();
 
+        // Gather depth-buffer state for the Advanced tab. The overlay shares the
+        // process with the layer, so we read LogicalDevice directly under the
+        // global lock.
+        gatherDepthInfo();
+        applyDepthPinRequests();
+
         if (ImGui::BeginTabBar("OverlayTabs"))
         {
             if (ImGui::BeginTabItem("Effects"))
@@ -793,6 +937,12 @@ namespace vkShade
             if (ImGui::BeginTabItem("Settings"))
             {
                 renderSettingsView(keyboard);
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Advanced"))
+            {
+                renderAdvancedView();
                 ImGui::EndTabItem();
             }
 

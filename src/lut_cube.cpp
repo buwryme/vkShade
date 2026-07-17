@@ -12,7 +12,8 @@ namespace vkShade
         std::ifstream cubeStream(file);
         if (!cubeStream.good())
         {
-            Logger::err("lut cube file does not exist");
+            Logger::err("lut cube file does not exist: " + file);
+            return;
         }
 
         std::string line;
@@ -55,6 +56,9 @@ namespace vkShade
         }
         if (line.find_first_of("0123456789") == 0)
         {
+            if (size == 0 || colorCube.empty())
+                return;
+
             float         x, y, z;
             unsigned char outX, outY, outZ;
             splitTripel(line, x, y, z);
@@ -92,11 +96,24 @@ namespace vkShade
     {
         tripel       = skipWhiteSpace(tripel);
         size_t after = tripel.find_first_of(" \n");
+        if (after == std::string::npos)
+        {
+            x = std::stof(tripel);
+            y = 0.0f;
+            z = 0.0f;
+            return;
+        }
         x            = std::stof(tripel.substr(0, after));
         tripel       = tripel.substr(after);
 
         tripel = skipWhiteSpace(tripel);
         after  = tripel.find_first_of(" \n");
+        if (after == std::string::npos)
+        {
+            y = std::stof(tripel);
+            z = 0.0f;
+            return;
+        }
         y      = std::stof(tripel.substr(0, after));
         tripel = tripel.substr(after);
 
@@ -106,13 +123,29 @@ namespace vkShade
 
     void LutCube::clampTripel(float x, float y, float z, unsigned char& outX, unsigned char& outY, unsigned char& outZ)
     {
-        outX = (unsigned char) 255 * (x / (maxX - minX));
-        outY = (unsigned char) 255 * (y / (maxY - minY));
-        outZ = (unsigned char) 255 * (z / (maxZ - minZ));
+        float rangeX = maxX - minX;
+        float rangeY = maxY - minY;
+        float rangeZ = maxZ - minZ;
+
+        // Guard against division by zero for degenerate domains
+        if (rangeX == 0.0f) rangeX = 1.0f;
+        if (rangeY == 0.0f) rangeY = 1.0f;
+        if (rangeZ == 0.0f) rangeZ = 1.0f;
+
+        outX = static_cast<unsigned char>(255.0f * (x / rangeX));
+        outY = static_cast<unsigned char>(255.0f * (y / rangeY));
+        outZ = static_cast<unsigned char>(255.0f * (z / rangeZ));
     }
 
     void LutCube::writeColor(int x, int y, int z, unsigned char r, unsigned char g, unsigned char b)
     {
+        if (size == 0)
+            return;
+
+        // Bounds check to prevent buffer overflow from malformed .cube files
+        if (x < 0 || x >= size || y < 0 || y >= size || z < 0 || z >= size)
+            return;
+
         static const int colorSize = 4; // 4 bytes per point in the cube, rgba
 
         int locationR = (((z * size) + y) * size + x) * colorSize;

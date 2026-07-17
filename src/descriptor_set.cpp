@@ -22,7 +22,7 @@ namespace vkShade
         descriptorPoolCreateInfo.pPoolSizes    = poolSizes.data();
 
         VkResult result = pLogicalDevice->vkd.CreateDescriptorPool(pLogicalDevice->device, &descriptorPoolCreateInfo, nullptr, &descriptorPool);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
         return descriptorPool;
     }
 
@@ -47,7 +47,7 @@ namespace vkShade
 
         VkResult result =
             pLogicalDevice->vkd.CreateDescriptorSetLayout(pLogicalDevice->device, &descriptorSetCreateInfo, nullptr, &descriptorSetLayout);
-        ASSERT_VULKAN(result)
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE)
 
         return descriptorSetLayout;
     }
@@ -67,7 +67,7 @@ namespace vkShade
         descriptorSetAllocateInfo.pSetLayouts        = &descriptorSetLayout;
 
         VkResult result = pLogicalDevice->vkd.AllocateDescriptorSets(pLogicalDevice->device, &descriptorSetAllocateInfo, &descriptorSet);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
 
         VkDescriptorBufferInfo bufferInfo;
         bufferInfo.buffer = buffer;
@@ -119,7 +119,7 @@ namespace vkShade
 
         VkResult result =
             pLogicalDevice->vkd.CreateDescriptorSetLayout(pLogicalDevice->device, &descriptorSetCreateInfo, nullptr, &descriptorSetLayout);
-        ASSERT_VULKAN(result)
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE)
         return descriptorSetLayout;
     }
     VkDescriptorSetLayout createImageSamplerDescriptorSetLayout(LogicalDevice* pLogicalDevice, uint32_t count)
@@ -157,7 +157,7 @@ namespace vkShade
 
         Logger::debug("before allocating descriptor Sets");
         VkResult result = pLogicalDevice->vkd.AllocateDescriptorSets(pLogicalDevice->device, &descriptorSetAllocateInfo, descriptorSets.data());
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, {});
 
         VkDescriptorImageInfo imageInfo;
         imageInfo.sampler     = VK_NULL_HANDLE;

@@ -542,8 +542,12 @@ void* dlsym(void* handle, const char* symbol)
     void* resolved = realDlsym(handle, symbol);
 
     // Keep behavior unchanged unless vkShade is explicitly enabled.
-    const char* enabled = std::getenv("ENABLE_VKSHADE");
-    if (!enabled || std::strcmp(enabled, "1") != 0 || !resolved)
+    // Cache the check — this function is called for every dlsym in the process.
+    static const bool vkShadeEnabled = []{
+        const char* e = std::getenv("ENABLE_VKSHADE");
+        return e && std::strcmp(e, "1") == 0;
+    }();
+    if (!vkShadeEnabled || !resolved)
         return resolved;
 
     bool wantsListener = (std::strcmp(symbol, "wl_proxy_add_listener") == 0);

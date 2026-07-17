@@ -86,12 +86,19 @@ namespace vkShade
     std::shared_ptr<Config> pConfig = nullptr;      // Current config (base + overlay)
     EffectRegistry effectRegistry;                   // Single source of truth for effect configs
 
+    static std::once_flag initConfigsOnceFlag;
+
     // layer book-keeping information, to store dispatch tables by key
     std::unordered_map<void*, InstanceDispatch>                           instanceDispatchMap;
     std::unordered_map<void*, VkInstance>                                 instanceMap;
     std::unordered_map<void*, uint32_t>                                   instanceVersionMap;
     std::unordered_map<void*, std::shared_ptr<LogicalDevice>>             deviceMap;
     std::unordered_map<VkSwapchainKHR, std::shared_ptr<LogicalSwapchain>> swapchainMap;
+
+    // Cache: VkRenderPass → depth attachment's finalLayout.
+    // Populated at CreateRenderPass time. Used by v3 deferred copy to
+    // determine the correct source image layout for the copy barrier.
+    static std::unordered_map<VkRenderPass, VkImageLayout> renderPassDepthFinalLayouts;
 
     std::mutex globalLock;
 #ifdef _GCC_
@@ -154,6 +161,23 @@ namespace vkShade
     };
     ResizeDebounceState resizeDebounce;
     constexpr int64_t RESIZE_DEBOUNCE_MS = 200;
+
+    // Deferred startup reload: on first launch, shader_manager.conf and
+    // discovered shader paths may not be fully populated yet (especially
+    // when per-game profiles are auto-created).  We schedule a single
+    // config + effect reload a few seconds after the first present call
+    // so that .fx discovery and effect chain creation have a chance to
+    // succeed with the finalised filesystem state.
+    //
+    // Weird workaround
+    struct DeferredStartupReload
+    {
+        std::chrono::steady_clock::time_point firstPresentTime;
+        bool   armed      = false;   // set on first present
+        bool   fired      = false;   // set once the reload has fired
+    };
+    DeferredStartupReload deferredStartupReload;
+    constexpr int64_t DEFERRED_STARTUP_RELOAD_MS = 3000;
 
     static bool parseBoolEnvValue(const std::string& value, bool defaultValue)
     {
@@ -232,9 +256,7 @@ namespace vkShade
         static bool dumped = false;
         if (dumped || !isDepthCopyDumpEnabled() || !pLogicalDevice || !pLogicalSwapchain)
             return;
-        if (imageIndex >= pLogicalSwapchain->depthResolveImages.size()
-            || imageIndex >= pLogicalSwapchain->depthResolveMemories.size()
-            || imageIndex >= pLogicalSwapchain->depthResolveImageViews.size())
+        if (imageIndex >= pLogicalSwapchain->depthResolvePerImage.size())
             return;
         if (pLogicalSwapchain->depthResolveFormat != VK_FORMAT_D32_SFLOAT
             && pLogicalSwapchain->depthResolveFormat != VK_FORMAT_R32_SFLOAT)
@@ -283,7 +305,7 @@ namespace vkShade
 
         VkImageMemoryBarrier barrier = {};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.image = pLogicalSwapchain->depthResolveImages[imageIndex];
+        barrier.image = pLogicalSwapchain->depthResolvePerImage[imageIndex].image;
         barrier.oldLayout = getDepthResolveReadOnlyLayoutForDebug(pLogicalSwapchain);
         barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -320,7 +342,7 @@ namespace vkShade
         region.imageExtent.depth = 1;
 
         pLogicalDevice->vkd.CmdCopyImageToBuffer(commandBuffer,
-                                                 pLogicalSwapchain->depthResolveImages[imageIndex],
+                                                 pLogicalSwapchain->depthResolvePerImage[imageIndex].image,
                                                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                                  stagingBuffer,
                                                  1,
@@ -591,6 +613,10 @@ namespace vkShade
         return state.image != VK_NULL_HANDLE && state.imageView != VK_NULL_HANDLE && state.format != VK_FORMAT_UNDEFINED;
     }
 
+    // Forward declaration — defined later, after DepthImageMetadata helpers.
+    // Used to gate depth-resolve recording against destroyed/invalid depth images.
+    bool validateDepthStateForResolve(LogicalDevice* pLogicalDevice, const DepthState& depth);
+
     static bool isDepthStencilAttachmentFormat(VkFormat format)
     {
         return isDepthFormat(format) || isStencilFormat(format);
@@ -651,11 +677,12 @@ namespace vkShade
             attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             changed = true;
         }
-        if (hasStencilAspect && attachment.imageView != VK_NULL_HANDLE && needsStoredAttachmentPreservation(attachment.storeOp))
-        {
-            attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            changed = true;
-        }
+        // NOTE: VkRenderingAttachmentInfo has no stencilStoreOp field.
+        // Stencil preservation for dynamic rendering requires the application
+        // to set it correctly on pStencilAttachment in VkRenderingInfo,
+        // which is outside this per-attachment helper's scope.
+        // The depth storeOp is forced above; stencil is a known limitation.
+        (void)hasStencilAspect;
         return changed;
     }
 
@@ -779,6 +806,40 @@ namespace vkShade
             depth = it->second;
 
         depth.observedLayout = pRenderingInfo->pDepthAttachment->imageLayout;
+
+        // When the app supplies its own resolve target (e.g. Roblox MSAA), the
+        // resolve image is 1-sample and the actual depth data effects should
+        // use. Track the resolve view instead of the MSAA source.
+        //
+        // CRITICAL: Only follow the resolve target if resolveMode != NONE.
+        // VK_RESOLVE_MODE_NONE means the app explicitly does NOT want depth
+        // resolved into the resolve target — the resolve target stays empty.
+        // Following it would cause the layer to copy an empty image, producing
+        // the "normal map shows but depth doesn't" symptom in Roblox (which
+        // uses NONE on some configurations to skip depth resolve for perf).
+        // In that case, fall through and let the layer do its OWN resolve via
+        // the MSAA path (depthResolveIsMsaa).
+        if (pRenderingInfo->pDepthAttachment->resolveImageView != VK_NULL_HANDLE
+            && pRenderingInfo->pDepthAttachment->resolveMode != VK_RESOLVE_MODE_NONE)
+        {
+            auto resolveIt = pLogicalDevice->depthViewStates.find(pRenderingInfo->pDepthAttachment->resolveImageView);
+            if (resolveIt != pLogicalDevice->depthViewStates.end())
+            {
+                depth = resolveIt->second;
+                // The resolve image layout follows the attachment layout.
+                depth.observedLayout = pRenderingInfo->pDepthAttachment->resolveImageLayout != VK_IMAGE_LAYOUT_UNDEFINED
+                    ? pRenderingInfo->pDepthAttachment->resolveImageLayout
+                    : pRenderingInfo->pDepthAttachment->imageLayout;
+                Logger::debug("depth dynamic rendering: following resolve image view instead of MSAA source (resolveMode="
+                              + std::to_string(static_cast<uint32_t>(pRenderingInfo->pDepthAttachment->resolveMode)) + ")");
+            }
+        }
+        else if (pRenderingInfo->pDepthAttachment->resolveImageView != VK_NULL_HANDLE
+                 && pRenderingInfo->pDepthAttachment->resolveMode == VK_RESOLVE_MODE_NONE)
+        {
+            Logger::debug("depth dynamic rendering: resolve target present but resolveMode=NONE; "
+                          "keeping MSAA source for layer-side resolve");
+        }
 
         return depth;
     }
@@ -921,7 +982,8 @@ namespace vkShade
     void beginTrackedDepthScope(LogicalDevice* pLogicalDevice,
                                 VkCommandBuffer commandBuffer,
                                 const DepthState& depthState,
-                                DepthSnapshotTarget snapshotTarget)
+                                DepthSnapshotTarget snapshotTarget,
+                                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED)
     {
         pLogicalDevice->pendingTransferLinkedDepthScopes.erase(commandBuffer);
         auto& scopeState = pLogicalDevice->commandBufferDepthStates[commandBuffer];
@@ -929,6 +991,7 @@ namespace vkShade
         scopeState.depthState = depthState;
         scopeState.snapshotTarget = snapshotTarget;
         scopeState.drawCount = 0;
+        scopeState.depthFinalLayout = depthFinalLayout;
     }
 
     void countTrackedDepthDraw(LogicalDevice* pLogicalDevice, VkCommandBuffer commandBuffer, uint32_t drawCount = 1)
@@ -982,13 +1045,19 @@ namespace vkShade
                               VkCommandBuffer commandBuffer,
                               const char* reason,
                               DepthState* pPromotedDepthState = nullptr,
-                              DepthSnapshotTarget* pSnapshotTarget = nullptr)
+                              DepthSnapshotTarget* pSnapshotTarget = nullptr,
+                              VkImageLayout* pDepthFinalLayout = nullptr)
     {
         auto scopeIt = pLogicalDevice->commandBufferDepthStates.find(commandBuffer);
         if (scopeIt == pLogicalDevice->commandBufferDepthStates.end())
             return false;
 
         LogicalDevice::DepthScopeTrackingState scopeState = scopeIt->second;
+
+        // Output the tracked depthFinalLayout before erasing the scope.
+        if (pDepthFinalLayout != nullptr)
+            *pDepthFinalLayout = scopeState.depthFinalLayout;
+
         pLogicalDevice->commandBufferDepthStates.erase(scopeIt);
 
         if (!scopeState.inRenderScope || !hasDepthState(scopeState.depthState))
@@ -1045,7 +1114,9 @@ namespace vkShade
                       + " view=" + convertToString(scopeState.depthState.imageView)
                       + " format=" + convertToString(scopeState.depthState.format)
                       + " extent=" + std::to_string(scopeState.depthState.extent.width) + "x"
-                      + std::to_string(scopeState.depthState.extent.height));
+                      + std::to_string(scopeState.depthState.extent.height)
+                      + " samples=" + convertToString(scopeState.depthState.samples)
+                      + " transient=" + std::string(scopeState.depthState.transient ? "true" : "false"));
 
         if (isQualifiedDepthCandidate(pLogicalDevice, scopeState))
         {
@@ -1105,10 +1176,22 @@ namespace vkShade
     void recordDepthResolveSnapshotForCommandBuffer(LogicalDevice* pLogicalDevice,
                                                     VkCommandBuffer commandBuffer,
                                                     const DepthState& depthState,
-                                                    const DepthSnapshotTarget* pSnapshotTarget = nullptr)
+                                                    const DepthSnapshotTarget* pSnapshotTarget)
     {
         if (!pLogicalDevice || !hasDepthState(depthState))
             return;
+
+        // VALIDATE the depth state before recording commands against it. This
+        // catches the case where a depth view was promoted to active state but
+        // its underlying image was destroyed between promotion and the snapshot
+        // recording (a common Roblox failure mode — Roblox recycles depth
+        // images aggressively).
+        if (!validateDepthStateForResolve(pLogicalDevice, depthState))
+        {
+            Logger::debug("recordDepthResolveSnapshotForCommandBuffer: depth state failed validation; skipping (image="
+                          + convertToString(depthState.image) + ")");
+            return;
+        }
 
         scoped_lock l(globalLock);
 
@@ -1148,6 +1231,16 @@ namespace vkShade
     {
         if (!pLogicalDevice || !hasDepthState(depthState))
             return;
+
+        // VALIDATE: same rationale as recordDepthResolveSnapshotForCommandBuffer.
+        if (!validateDepthStateForResolve(pLogicalDevice, depthState))
+        {
+            Logger::debug("recordDepthResolveSnapshotForAllSwapchains: depth state failed validation; skipping (image="
+                          + convertToString(depthState.image) + ")");
+            return;
+        }
+
+        scoped_lock l(globalLock);
 
         for (auto& [swapchainHandle, pLogicalSwapchain] : swapchainMap)
         {
@@ -1190,11 +1283,26 @@ namespace vkShade
 
     void destroyDepthResolveResources(LogicalSwapchain* pLogicalSwapchain)
     {
+        pLogicalSwapchain->depthResolveSourceView = VK_NULL_HANDLE;
+
         for (auto& framebuffer : pLogicalSwapchain->depthResolveFramebuffers)
         {
             pLogicalSwapchain->pLogicalDevice->vkd.DestroyFramebuffer(pLogicalSwapchain->pLogicalDevice->device, framebuffer, nullptr);
         }
         pLogicalSwapchain->depthResolveFramebuffers.clear();
+
+        for (auto& framebuffer : pLogicalSwapchain->depthResolveMsaaFramebuffers)
+        {
+            pLogicalSwapchain->pLogicalDevice->vkd.DestroyFramebuffer(pLogicalSwapchain->pLogicalDevice->device, framebuffer, nullptr);
+        }
+        pLogicalSwapchain->depthResolveMsaaFramebuffers.clear();
+
+        if (pLogicalSwapchain->depthResolveMsaaRenderPass)
+        {
+            pLogicalSwapchain->pLogicalDevice->vkd.DestroyRenderPass(
+                pLogicalSwapchain->pLogicalDevice->device, pLogicalSwapchain->depthResolveMsaaRenderPass, nullptr);
+            pLogicalSwapchain->depthResolveMsaaRenderPass = VK_NULL_HANDLE;
+        }
 
         if (pLogicalSwapchain->depthResolvePipeline)
         {
@@ -1233,57 +1341,70 @@ namespace vkShade
             pLogicalSwapchain->depthResolveSampler = VK_NULL_HANDLE;
         }
 
-        for (auto& imageView : pLogicalSwapchain->depthResolveImageViews)
+        for (auto& perImg : pLogicalSwapchain->depthResolvePerImage)
         {
-            if (imageView != VK_NULL_HANDLE)
-            {
+            if (perImg.imageView != VK_NULL_HANDLE)
                 pLogicalSwapchain->pLogicalDevice->vkd.DestroyImageView(
-                    pLogicalSwapchain->pLogicalDevice->device, imageView, nullptr);
-            }
-        }
-        pLogicalSwapchain->depthResolveImageViews.clear();
-
-        for (auto& image : pLogicalSwapchain->depthResolveImages)
-        {
-            if (image != VK_NULL_HANDLE)
-            {
+                    pLogicalSwapchain->pLogicalDevice->device, perImg.imageView, nullptr);
+            if (perImg.image != VK_NULL_HANDLE)
                 pLogicalSwapchain->pLogicalDevice->vkd.DestroyImage(
-                    pLogicalSwapchain->pLogicalDevice->device, image, nullptr);
-            }
-        }
-        pLogicalSwapchain->depthResolveImages.clear();
-
-        for (auto& memory : pLogicalSwapchain->depthResolveMemories)
-        {
-            if (memory != VK_NULL_HANDLE)
-            {
+                    pLogicalSwapchain->pLogicalDevice->device, perImg.image, nullptr);
+            if (perImg.memory != VK_NULL_HANDLE)
                 pLogicalSwapchain->pLogicalDevice->vkd.FreeMemory(
-                    pLogicalSwapchain->pLogicalDevice->device, memory, nullptr);
-            }
+                    pLogicalSwapchain->pLogicalDevice->device, perImg.memory, nullptr);
         }
-        pLogicalSwapchain->depthResolveMemories.clear();
-        pLogicalSwapchain->depthResolveInitialized.clear();
+        pLogicalSwapchain->depthResolvePerImage.clear();
 
         pLogicalSwapchain->depthResolveDescriptorSets.clear();
         pLogicalSwapchain->depthResolveFormat = VK_FORMAT_UNDEFINED;
         pLogicalSwapchain->depthResolveExtent = {0, 0, 1};
         pLogicalSwapchain->depthResolveUsesShader = false;
+        pLogicalSwapchain->depthResolveIsMsaa = false;
+        pLogicalSwapchain->depthResolveSourceSamples = VK_SAMPLE_COUNT_1_BIT;
+        pLogicalSwapchain->depthResolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    }
+
+    static std::vector<VkImageView> collectDepthResolveImageViews(const LogicalSwapchain* sc)
+    {
+        std::vector<VkImageView> views(sc->depthResolvePerImage.size());
+        for (size_t i = 0; i < sc->depthResolvePerImage.size(); i++)
+            views[i] = sc->depthResolvePerImage[i].imageView;
+        return views;
     }
 
     void initializeDepthResolveLayout(LogicalSwapchain* pLogicalSwapchain, const DepthState& depth)
     {
         LogicalDevice* pLogicalDevice = pLogicalSwapchain->pLogicalDevice;
-        const bool useShaderResolve = depth.observedLayout == VK_IMAGE_LAYOUT_GENERAL;
+        const bool isMsaa = depth.samples != VK_SAMPLE_COUNT_1_BIT;
+        const bool useShaderResolve = !isMsaa && (depth.observedLayout == VK_IMAGE_LAYOUT_GENERAL);
+        // MSAA depth resolve via depth-stencil resolve subpass (core 1.2). Works
+        // for both GENERAL and non-GENERAL layouts: when GENERAL, we barrier the
+        // source to attachment-optimal before the resolve subpass and restore after.
+        const bool useMsaaResolve = isMsaa
+            && (pLogicalDevice->supportedDepthResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT);
         pLogicalSwapchain->depthResolveUsesShader = useShaderResolve;
+        pLogicalSwapchain->depthResolveIsMsaa = useMsaaResolve;
+        pLogicalSwapchain->depthResolveSourceSamples = depth.samples;
+        // The MSAA subpass and 1-sample transfer-copy paths keep the native depth
+        // format. Only the 1-sample+GENERAL shader fallback uses R32_SFLOAT.
         pLogicalSwapchain->depthResolveFormat = useShaderResolve ? VK_FORMAT_R32_SFLOAT : depth.format;
         pLogicalSwapchain->depthResolveExtent = {depth.extent.width, depth.extent.height, 1};
+        pLogicalSwapchain->depthResolveSourceView = depth.imageView;
 
-        pLogicalSwapchain->depthResolveImages.clear();
-        pLogicalSwapchain->depthResolveImageViews.clear();
-        pLogicalSwapchain->depthResolveMemories.clear();
-        pLogicalSwapchain->depthResolveInitialized.assign(pLogicalSwapchain->imageCount, false);
-        pLogicalSwapchain->depthResolveImages.reserve(pLogicalSwapchain->imageCount);
-        pLogicalSwapchain->depthResolveMemories.reserve(pLogicalSwapchain->imageCount);
+        // Decide the depth resolve mode (average preferred for MSAA depth).
+        VkResolveModeFlagBits chosenMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        if (useMsaaResolve)
+        {
+            const int modePref = settingsManager.getDepthResolveMode();
+            const bool wantsAverage =
+                (modePref == 0 || modePref == 2) && (pLogicalDevice->supportedDepthResolveModes & VK_RESOLVE_MODE_AVERAGE_BIT);
+            chosenMode = wantsAverage ? VK_RESOLVE_MODE_AVERAGE_BIT : VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        }
+        pLogicalSwapchain->depthResolveMode = chosenMode;
+
+        pLogicalSwapchain->depthResolvePerImage.clear();
+        pLogicalSwapchain->depthResolvePerImage.resize(pLogicalSwapchain->imageCount);
+        pLogicalSwapchain->depthResolvePerImage.shrink_to_fit();
         for (uint32_t i = 0; i < pLogicalSwapchain->imageCount; ++i)
         {
             VkDeviceMemory imageMemory = VK_NULL_HANDLE;
@@ -1293,18 +1414,53 @@ namespace vkShade
                                                        pLogicalSwapchain->depthResolveFormat,
                                                        useShaderResolve
                                                            ? (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
-                                                           : (VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT),
+                                                           : (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT),
                                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                                        imageMemory);
-            pLogicalSwapchain->depthResolveImages.push_back(images[0]);
-            pLogicalSwapchain->depthResolveMemories.push_back(imageMemory);
+            // createImages returns exactly 1 image for depth resolve.
+            pLogicalSwapchain->depthResolvePerImage[i].image = images[0];
+            pLogicalSwapchain->depthResolvePerImage[i].memory = imageMemory;
         }
 
-        pLogicalSwapchain->depthResolveImageViews = createImageViews(pLogicalDevice,
-                                                                     pLogicalSwapchain->depthResolveFormat,
-                                                                     pLogicalSwapchain->depthResolveImages,
-                                                                     VK_IMAGE_VIEW_TYPE_2D,
-                                                                     useShaderResolve ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT);
+        {
+            std::vector<VkImage> rawImages(pLogicalSwapchain->depthResolvePerImage.size());
+            for (size_t idx = 0; idx < rawImages.size(); idx++)
+                rawImages[idx] = pLogicalSwapchain->depthResolvePerImage[idx].image;
+            auto views = createImageViews(pLogicalDevice,
+                                           pLogicalSwapchain->depthResolveFormat,
+                                           rawImages,
+                                           VK_IMAGE_VIEW_TYPE_2D,
+                                           useShaderResolve ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT);
+            for (size_t idx = 0; idx < views.size() && idx < pLogicalSwapchain->depthResolvePerImage.size(); idx++)
+                pLogicalSwapchain->depthResolvePerImage[idx].imageView = views[idx];
+        }
+
+        // Build the MSAA depth-stencil resolve render pass + framebuffers. The
+        // source MSAA view is the per-tracked depth view (1 per swapchain image
+        // is overkill; we reuse the single active source view for all frames).
+        if (useMsaaResolve)
+        {
+            const VkImageLayout resolveFinalLayout =
+                isStencilFormat(depth.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                              : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+            pLogicalSwapchain->depthResolveMsaaRenderPass = createDepthMsaaResolveRenderPass(
+                pLogicalDevice, depth.format, depth.samples, chosenMode, resolveFinalLayout);
+            if (pLogicalSwapchain->depthResolveMsaaRenderPass != VK_NULL_HANDLE)
+            {
+                VkExtent2D resolveExtent2D = {pLogicalSwapchain->depthResolveExtent.width, pLogicalSwapchain->depthResolveExtent.height};
+                std::vector<VkImageView> sourceViews(pLogicalSwapchain->imageCount, depth.imageView);
+                pLogicalSwapchain->depthResolveMsaaFramebuffers = createFramebuffers(
+                    pLogicalDevice, pLogicalSwapchain->depthResolveMsaaRenderPass, resolveExtent2D,
+                    {sourceViews, collectDepthResolveImageViews(pLogicalSwapchain)});
+            }
+            else
+            {
+                // Device refused the resolve render pass; disable and let the
+                // copy path take over (it will no-op harmlessly on MSAA since
+                // samples mismatch, but at least we won't crash).
+                pLogicalSwapchain->depthResolveIsMsaa = false;
+            }
+        }
 
         if (!useShaderResolve)
             return;
@@ -1327,13 +1483,31 @@ namespace vkShade
 
         pLogicalSwapchain->depthResolveRenderPass =
             createRenderPass(pLogicalDevice, pLogicalSwapchain->depthResolveFormat, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        // Set up push constant range for depth resolve shaders
+        // CRITICAL: Size must match the GLSL struct exactly!
+        // GLSL layout: int(4) + bool(4) + bool(4) = 12 bytes
+        // (GLSL bool is always int32/4 bytes, not C++ bool which is 1 byte)
+        VkPushConstantRange depthPushConstantRange = {};
+        depthPushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        depthPushConstantRange.offset = 0;
+        depthPushConstantRange.size = sizeof(int32_t) * 3; // 12 bytes: depthMode + invertDepth + normalize
+
         pLogicalSwapchain->depthResolvePipelineLayout = createGraphicsPipelineLayout(
-            pLogicalDevice, {pLogicalSwapchain->depthResolveDescriptorSetLayout});
+            pLogicalDevice,
+            {pLogicalSwapchain->depthResolveDescriptorSetLayout},
+            {depthPushConstantRange});
 
         VkShaderModule vertexModule = VK_NULL_HANDLE;
         VkShaderModule fragmentModule = VK_NULL_HANDLE;
         createShaderModule(pLogicalDevice, full_screen_triangle_vert, &vertexModule);
-        createShaderModule(pLogicalDevice, depth_resolve_frag, &fragmentModule);
+
+        // Select shader based on depth source channel setting
+        const int depthChannel = settingsManager.getDepthSourceChannel();
+
+        // Use universal shader for all modes (handles everything via push constants)
+        // This provides comprehensive support for deferred rendering depth encodings
+        createShaderModule(pLogicalDevice, depth_resolve_universal_frag, &fragmentModule);
 
         VkExtent2D resolveExtent2D = {pLogicalSwapchain->depthResolveExtent.width, pLogicalSwapchain->depthResolveExtent.height};
         pLogicalSwapchain->depthResolvePipeline = createGraphicsPipeline(pLogicalDevice,
@@ -1350,28 +1524,236 @@ namespace vkShade
         pLogicalDevice->vkd.DestroyShaderModule(pLogicalDevice->device, vertexModule, nullptr);
 
         pLogicalSwapchain->depthResolveFramebuffers = createFramebuffers(
-            pLogicalDevice, pLogicalSwapchain->depthResolveRenderPass, resolveExtent2D, {pLogicalSwapchain->depthResolveImageViews});
+            pLogicalDevice, pLogicalSwapchain->depthResolveRenderPass, resolveExtent2D, {collectDepthResolveImageViews(pLogicalSwapchain)});
     }
 
+
+    // Validate that a DepthState is safe to use for resolve/copy. Returns false
+    // if any required field is missing, the underlying image is no longer
+    // tracked, or the image lacks the usage flags the layer needs.
+    //
+    // This is the single chokepoint that all depth-resolve paths must pass
+    // through before recording commands. Calling this prevents:
+    //   - using a depth view whose image was destroyed out from under us
+    //   - using a depth image that lacks SAMPLED/TRANSFER_SRC (shouldn't happen
+    //     because vkShade_CreateImage forces them, but defensive)
+    //   - using a depth state with zero extent (e.g. right after a DestroyImage
+    //     race where the state hasn't been cleared yet)
+    bool validateDepthStateForResolve(LogicalDevice* pLogicalDevice, const DepthState& depth)
+    {
+        if (!hasDepthState(depth))
+            return false;
+        if (depth.extent.width == 0 || depth.extent.height == 0)
+            return false;
+
+        // Underlying image must still be tracked, UNLESS it's our persistent
+        // storage (which is tracked separately via persistentStorageTracked).
+        if (depth.image != pLogicalDevice->depthCaptureStorage.image
+            || !pLogicalDevice->persistentStorageTracked)
+        {
+            if (std::find(pLogicalDevice->depthImages.begin(),
+                          pLogicalDevice->depthImages.end(),
+                          depth.image) == pLogicalDevice->depthImages.end())
+            {
+                Logger::warn("validateDepthStateForResolve: depth image no longer tracked (image="
+                             + convertToString(depth.image) + "); skipping resolve");
+                return false;
+            }
+        }
+
+        // Image must have the usage flags we need.
+        auto metadataIt = pLogicalDevice->depthImageMetadata.find(depth.image);
+        if (metadataIt != pLogicalDevice->depthImageMetadata.end())
+        {
+            const VkImageUsageFlags required = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            if ((metadataIt->second.usage & required) != required)
+            {
+                Logger::warn("validateDepthStateForResolve: depth image missing required usage flags"
+                             " (image=" + convertToString(depth.image)
+                             + " usage=0x" + formatHexU64(static_cast<uint64_t>(metadataIt->second.usage))
+                             + "); skipping resolve");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // --- Persistent depth storage (depthCaptureMethod 1 & 2) ---
+
+    static void destroyPersistentDepthStorage(LogicalDevice* pLogicalDevice)
+    {
+        auto& s = pLogicalDevice->depthCaptureStorage;
+        if (s.view != VK_NULL_HANDLE)
+        {
+            pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, s.view, nullptr);
+            s.view = VK_NULL_HANDLE;
+        }
+        if (s.image != VK_NULL_HANDLE)
+        {
+            pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, s.image, nullptr);
+            pLogicalDevice->depthImageMetadata.erase(s.image);
+            s.image = VK_NULL_HANDLE;
+        }
+        if (s.memory != VK_NULL_HANDLE)
+        {
+            pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, s.memory, nullptr);
+            s.memory = VK_NULL_HANDLE;
+        }
+        s.extent = {0, 0, 1};
+        s.format = VK_FORMAT_UNDEFINED;
+        s.valid = false;
+        pLogicalDevice->persistentStorageTracked = false;
+
+        Logger::debug("persistent depth storage destroyed");
+    }
+
+    static void ensurePersistentDepthStorage(LogicalDevice* pLogicalDevice, VkFormat format, const VkExtent3D& extent)
+    {
+        auto& s = pLogicalDevice->depthCaptureStorage;
+        if (s.image != VK_NULL_HANDLE && s.format == format
+            && s.extent.width == extent.width && s.extent.height == extent.height)
+            return;  // Already created with matching format/size
+
+        if (s.image != VK_NULL_HANDLE)
+            destroyPersistentDepthStorage(pLogicalDevice);
+
+        if (!isDepthFormat(format))
+            return;
+        if (extent.width == 0 || extent.height == 0)
+            return;
+
+        VkImageCreateInfo ici = {};
+        ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ici.imageType = VK_IMAGE_TYPE_2D;
+        ici.format = format;
+        ici.extent = extent;
+        ici.mipLevels = 1;
+        ici.arrayLayers = 1;
+        ici.samples = VK_SAMPLE_COUNT_1_BIT;
+        ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ici.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                    | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                    | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                    | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VkResult vr = pLogicalDevice->vkd.CreateImage(pLogicalDevice->device, &ici, nullptr, &s.image);
+        if (vr != VK_SUCCESS)
+        {
+            Logger::warn("ensurePersistentDepthStorage: CreateImage failed (" + std::to_string(vr) + ")");
+            return;
+        }
+
+        VkMemoryRequirements memReq;
+        pLogicalDevice->vkd.GetImageMemoryRequirements(pLogicalDevice->device, s.image, &memReq);
+
+        VkMemoryAllocateInfo mai = {};
+        mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        mai.allocationSize = memReq.size;
+        // Prefer DEVICE_LOCAL (GPU-only) for performance.
+        mai.memoryTypeIndex = 0;
+        VkPhysicalDeviceMemoryProperties memProps;
+        pLogicalDevice->vki.GetPhysicalDeviceMemoryProperties(pLogicalDevice->physicalDevice, &memProps);
+        for (uint32_t i = 0; i < memProps.memoryTypeCount; i++)
+        {
+            if ((memReq.memoryTypeBits & (1u << i))
+                && (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+            {
+                mai.memoryTypeIndex = i;
+                break;
+            }
+        }
+
+        vr = pLogicalDevice->vkd.AllocateMemory(pLogicalDevice->device, &mai, nullptr, &s.memory);
+        if (vr != VK_SUCCESS)
+        {
+            Logger::warn("ensurePersistentDepthStorage: AllocateMemory failed (" + std::to_string(vr) + ")");
+            pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, s.image, nullptr);
+            s.image = VK_NULL_HANDLE;
+            return;
+        }
+
+        pLogicalDevice->vkd.BindImageMemory(pLogicalDevice->device, s.image, s.memory, 0);
+
+        VkImageViewCreateInfo ivci = {};
+        ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        ivci.image = s.image;
+        ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        ivci.format = format;
+        ivci.subresourceRange.aspectMask = isStencilFormat(format)
+            ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+            : VK_IMAGE_ASPECT_DEPTH_BIT;
+        ivci.subresourceRange.baseMipLevel = 0;
+        ivci.subresourceRange.levelCount = 1;
+        ivci.subresourceRange.baseArrayLayer = 0;
+        ivci.subresourceRange.layerCount = 1;
+
+        vr = pLogicalDevice->vkd.CreateImageView(pLogicalDevice->device, &ivci, nullptr, &s.view);
+        if (vr != VK_SUCCESS)
+        {
+            Logger::warn("ensurePersistentDepthStorage: CreateImageView failed (" + std::to_string(vr) + ")");
+            destroyPersistentDepthStorage(pLogicalDevice);
+            return;
+        }
+
+        s.extent = extent;
+        s.format = format;
+
+        // Register metadata so validateDepthStateForResolve accepts it.
+        // We do NOT push into depthImages/depthFormats — those parallel-indexed
+        // vectors are for app-created depth images only. Mixing in layer-internal
+        // images breaks the index invariant and causes vector OOB crashes.
+        DepthImageMetadata meta;
+        meta.usage = ici.usage;
+        meta.samples = VK_SAMPLE_COUNT_1_BIT;
+        meta.tiling = VK_IMAGE_TILING_OPTIMAL;
+        pLogicalDevice->depthImageMetadata[s.image] = meta;
+        pLogicalDevice->persistentStorageTracked = true;
+
+        Logger::info("persistent depth storage created: " + std::to_string(extent.width) + "x"
+                     + std::to_string(extent.height) + " format=" + std::to_string(format));
+    }
     void ensureDepthResolveResources(LogicalSwapchain* pLogicalSwapchain, const DepthState& depth)
     {
-        const bool useShaderResolve = depth.observedLayout == VK_IMAGE_LAYOUT_GENERAL;
-        const VkFormat wantedResolveFormat = useShaderResolve ? VK_FORMAT_R32_SFLOAT : depth.format;
+        // Destroy resolve resources if depth state is no longer valid (e.g.
+        // after the depth image was destroyed or the pin was cleared).  This
+        // prevents command buffers from sampling stale resolve images.
         if (!hasDepthState(depth) || depth.extent.width == 0 || depth.extent.height == 0)
         {
             destroyDepthResolveResources(pLogicalSwapchain);
             return;
         }
 
-        if (pLogicalSwapchain->depthResolveFormat == wantedResolveFormat
+        const bool isMsaa = depth.samples != VK_SAMPLE_COUNT_1_BIT;
+        const bool useShaderResolve = !isMsaa && (depth.observedLayout == VK_IMAGE_LAYOUT_GENERAL);
+        const bool wantsMsaaResolve = isMsaa
+            && (pLogicalSwapchain->pLogicalDevice->supportedDepthResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT);
+        const VkFormat wantedResolveFormat = useShaderResolve ? VK_FORMAT_R32_SFLOAT : depth.format;
+
+        // SOURCE-VIEW CHANGE DETECTION (Critical Bug 1, 2, 4 fix):
+        // The MSAA resolve framebuffers and the shader-resolve descriptor sets
+        // both bake the depth source view in at creation time. If the active
+        // depth view changes (e.g. user pins a different 1920x1080 depth buffer
+        // in Roblox), we MUST tear down and rebuild — otherwise the resolve
+        // silently reads from the previous depth image, which may have been
+        // destroyed or contain unrelated data, producing the "blank depth"
+        // symptom.
+        const bool sourceViewChanged = pLogicalSwapchain->depthResolveSourceView != depth.imageView;
+
+        if (!sourceViewChanged
+            && pLogicalSwapchain->depthResolveFormat == wantedResolveFormat
             && pLogicalSwapchain->depthResolveExtent.width == depth.extent.width
             && pLogicalSwapchain->depthResolveExtent.height == depth.extent.height
             && pLogicalSwapchain->depthResolveExtent.depth == 1
             && pLogicalSwapchain->depthResolveUsesShader == useShaderResolve
-            && pLogicalSwapchain->depthResolveImages.size() == pLogicalSwapchain->imageCount
-            && pLogicalSwapchain->depthResolveImageViews.size() == pLogicalSwapchain->imageCount
-            && pLogicalSwapchain->depthResolveMemories.size() == pLogicalSwapchain->imageCount
-            && pLogicalSwapchain->depthResolveInitialized.size() == pLogicalSwapchain->imageCount
+            && pLogicalSwapchain->depthResolveIsMsaa == wantsMsaaResolve
+            && pLogicalSwapchain->depthResolveSourceSamples == depth.samples
+            && pLogicalSwapchain->depthResolvePerImage.size() == pLogicalSwapchain->imageCount
+            && (!wantsMsaaResolve
+                || (pLogicalSwapchain->depthResolveMsaaRenderPass != VK_NULL_HANDLE
+                    && pLogicalSwapchain->depthResolveMsaaFramebuffers.size() == pLogicalSwapchain->imageCount))
             && (!useShaderResolve
                 || (pLogicalSwapchain->depthResolveDescriptorSets.size() == pLogicalSwapchain->imageCount
                     && pLogicalSwapchain->depthResolveRenderPass != VK_NULL_HANDLE
@@ -1382,6 +1764,14 @@ namespace vkShade
             return;
         }
 
+        if (sourceViewChanged)
+        {
+            Logger::info("depth resolve source view changed: old="
+                         + convertToString(pLogicalSwapchain->depthResolveSourceView)
+                         + " new=" + convertToString(depth.imageView)
+                         + " — rebuilding descriptor sets and MSAA framebuffers");
+        }
+
         destroyDepthResolveResources(pLogicalSwapchain);
         initializeDepthResolveLayout(pLogicalSwapchain, depth);
     }
@@ -1389,7 +1779,68 @@ namespace vkShade
     // Get depth state from logical device (returns null handles if no depth images)
     DepthState getDepthState(LogicalDevice* pLogicalDevice)
     {
+        if (pLogicalDevice->pinnedDepthImageView != VK_NULL_HANDLE)
+        {
+            auto it = pLogicalDevice->depthViewStates.find(pLogicalDevice->pinnedDepthImageView);
+            if (it != pLogicalDevice->depthViewStates.end())
+            {
+                // Extra safety: verify the underlying image is still tracked
+                const DepthState& pinned = it->second;
+                bool imageStillTracked = !pLogicalDevice->depthImages.empty() &&
+                    std::find(pLogicalDevice->depthImages.begin(), pLogicalDevice->depthImages.end(), pinned.image)
+                        != pLogicalDevice->depthImages.end();
+                if (imageStillTracked)
+                    return pinned;
+                // Image was destroyed but view entry wasn't cleaned up — clear pin
+                Logger::debug("getDepthState: pinned view's image no longer tracked; clearing pin");
+            }
+            else
+            {
+                Logger::debug("pinned depth view no longer tracked; clearing pin");
+            }
+            pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
+        }
         return pLogicalDevice->activeDepthState;
+    }
+
+    // Perform the actual command buffer reallocation for all swapchains on a device.
+    // MUST be called from a safe context (QueuePresentKHR or reload path) where the
+    // GPU has been idle'd first, to avoid freeing in-flight command buffers.
+    void performDeferredDepthRealloc(LogicalDevice* pLogicalDevice)
+    {
+        DepthState effectiveDepth = getDepthState(pLogicalDevice);
+
+        // VALIDATE before rebuilding resolve resources. If the depth state is
+        // stale (image destroyed, missing usage flags, zero extent), we tear
+        // down any existing resolve resources for each swapchain instead of
+        // rebuilding against garbage. This is the chokepoint for the
+        // "depth buffer doesn't work in Roblox" symptom: if the active depth
+        // view points at a destroyed image, we must not let ensureDepthResolveResources
+        // build descriptor sets against it.
+        const bool depthValid = validateDepthStateForResolve(pLogicalDevice, effectiveDepth);
+        if (hasDepthState(effectiveDepth) && !depthValid)
+        {
+            Logger::warn("performDeferredDepthRealloc: effective depth state failed validation; "
+                         "tearing down resolve resources and clearing active state");
+            // Clear the active state so getDepthState() returns empty next time
+            // (otherwise we'd keep retrying with the same invalid state).
+            pLogicalDevice->activeDepthState = {};
+            if (pLogicalDevice->pinnedDepthImageView != VK_NULL_HANDLE)
+                pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
+            effectiveDepth = DepthState{};
+        }
+
+        for (auto& [swapchainHandle, pLogicalSwapchain] : swapchainMap)
+        {
+            if (pLogicalSwapchain->pLogicalDevice != pLogicalDevice)
+                continue;
+            if (pLogicalSwapchain->commandBuffersEffect.empty())
+                continue;
+
+            reallocateCommandBuffers(pLogicalDevice, pLogicalSwapchain.get(), effectiveDepth);
+            Logger::debug("reallocated command buffers for swapchain " + convertToString(swapchainHandle) + " (deferred depth change)");
+        }
+        pLogicalDevice->depthReallocPending = false;
     }
 
     void updateDeviceDepthStateLocked(LogicalDevice* pLogicalDevice, const DepthState& depth, const char* reason)
@@ -1414,16 +1865,13 @@ namespace vkShade
                           + " transient=" + std::string((metadataIt->second.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) != 0 ? "true" : "false"));
         }
 
-        for (auto& [swapchainHandle, pLogicalSwapchain] : swapchainMap)
-        {
-            if (pLogicalSwapchain->pLogicalDevice != pLogicalDevice)
-                continue;
-            if (pLogicalSwapchain->commandBuffersEffect.empty())
-                continue;
-
-            reallocateCommandBuffers(pLogicalDevice, pLogicalSwapchain.get(), depth);
-            Logger::debug("reallocated command buffers for swapchain " + convertToString(swapchainHandle) + " after depth change");
-        }
+        // DEFER reallocation to QueuePresentKHR.  We are likely inside
+        // CmdEndRenderPass (or DestroyImage/DestroyImageView) right now,
+        // and the GPU may still be executing the old effect command buffers
+        // from the previous frame.  Freeing them here is a use-after-free.
+        // QueuePresentKHR checks depthReallocPending and calls
+        // performDeferredDepthRealloc after QueueWaitIdle.
+        pLogicalDevice->depthReallocPending = true;
     }
 
     // Helper to reallocate and rewrite command buffers for a swapchain
@@ -1455,14 +1903,16 @@ namespace vkShade
         writeCommandBuffers(pLogicalDevice,
                             pLogicalSwapchain,
                             pLogicalSwapchain->effects,
-                            pLogicalSwapchain->commandBuffersEffect);
+                            pLogicalSwapchain->commandBuffersEffect,
+                            depth);
 
         // Allocate and write no-effect command buffers
         pLogicalSwapchain->commandBuffersNoEffect = allocateCommandBuffer(pLogicalDevice, pLogicalSwapchain->imageCount);
         writeCommandBuffers(pLogicalDevice,
                             pLogicalSwapchain,
                             {pLogicalSwapchain->defaultTransfer},
-                            pLogicalSwapchain->commandBuffersNoEffect);
+                            pLogicalSwapchain->commandBuffersNoEffect,
+                            depth);
     }
 
     // Apply modified parameters from overlay to config
@@ -1485,101 +1935,101 @@ namespace vkShade
     // Initialize configs: base (vkShade.conf) + current (from game profile / env / default)
     void initConfigs()
     {
-        if (pBaseConfig != nullptr)
-            return;  // Already initialized
-
-        // Ensure config directory exists for later saves
+        std::call_once(initConfigsOnceFlag, []()
         {
-            std::string baseDir = ConfigSerializer::getBaseConfigDir();
-            if (!baseDir.empty())
-                mkdir(baseDir.c_str(), 0755);
-        }
-
-        // Initialize settings manager (single source of truth for settings)
-        settingsManager.initialize();
-
-        // Load base config (vkShade.conf) - used for paths, effect definitions
-        pBaseConfig = std::make_shared<Config>();
-
-        // Detect the game executable
-        detectedGameName = ConfigSerializer::detectGameName();
-
-        // Determine current config path (priority order):
-        // 1. VKSHADE_CONFIG_FILE env var (explicit override)
-        // 2. Per-game profile (auto-created if needed)
-        // 3. Legacy default_config file
-        // 4. Base vkShade.conf
-        std::string currentConfigPath;
-
-        const char* envConfig = std::getenv("VKSHADE_CONFIG_FILE");
-        if (envConfig && *envConfig)
-        {
-            currentConfigPath = envConfig;
-            Logger::info("config from env: " + currentConfigPath);
-        }
-        else if (!detectedGameName.empty())
-        {
-            // Auto-create profile for this game if needed, then load it
-            activeProfileName = ConfigSerializer::getActiveProfile(detectedGameName);
-            activeProfilePath = ConfigSerializer::getProfilePath(detectedGameName, activeProfileName);
-
-            // Ensure the profile file exists
-            struct stat st;
-            if (stat(activeProfilePath.c_str(), &st) != 0)
+            // Ensure config directory exists for later saves
             {
-                // Profile doesn't exist yet — create it
-                activeProfilePath = ConfigSerializer::ensureGameProfile(detectedGameName);
+                std::string baseDir = ConfigSerializer::getBaseConfigDir();
+                if (!baseDir.empty())
+                    mkdir(baseDir.c_str(), 0755);
             }
 
-            if (!activeProfilePath.empty())
+            // Initialize settings manager (single source of truth for settings)
+            settingsManager.initialize();
+
+            // Load base config (vkShade.conf) - used for paths, effect definitions
+            pBaseConfig = std::make_shared<Config>();
+
+            // Detect the game executable
+            detectedGameName = ConfigSerializer::detectGameName();
+
+            // Determine current config path (priority order):
+            // 1. VKSHADE_CONFIG_FILE env var (explicit override)
+            // 2. Per-game profile (auto-created if needed)
+            // 3. Legacy default_config file
+            // 4. Base vkShade.conf
+            std::string currentConfigPath;
+
+            const char* envConfig = std::getenv("VKSHADE_CONFIG_FILE");
+            if (envConfig && *envConfig)
             {
-                currentConfigPath = activeProfilePath;
-                Logger::info("game: " + detectedGameName + " | profile: " + activeProfileName);
+                currentConfigPath = envConfig;
+                Logger::info("config from env: " + currentConfigPath);
             }
-        }
-
-        // Fallback: legacy default_config
-        if (currentConfigPath.empty())
-        {
-            std::string defaultName = ConfigSerializer::getDefaultConfig();
-            if (!defaultName.empty())
-                currentConfigPath = ConfigSerializer::getConfigsDir() + "/" + defaultName + ".conf";
-        }
-
-        // Load current config if specified, otherwise use base
-        if (!currentConfigPath.empty())
-        {
-            std::ifstream file(currentConfigPath);
-            if (file.good())
+            else if (!detectedGameName.empty())
             {
-                pConfig = std::make_shared<Config>(currentConfigPath);
-                pConfig->setFallback(pBaseConfig.get());
-                Logger::info("current config: " + currentConfigPath);
+                // Auto-create profile for this game if needed, then load it
+                activeProfileName = ConfigSerializer::getActiveProfile(detectedGameName);
+                activeProfilePath = ConfigSerializer::getProfilePath(detectedGameName, activeProfileName);
+
+                // Ensure the profile file exists
+                struct stat st;
+                if (stat(activeProfilePath.c_str(), &st) != 0)
+                {
+                    // Profile doesn't exist yet — create it
+                    activeProfilePath = ConfigSerializer::ensureGameProfile(detectedGameName);
+                }
+
+                if (!activeProfilePath.empty())
+                {
+                    currentConfigPath = activeProfilePath;
+                    Logger::info("game: " + detectedGameName + " | profile: " + activeProfileName);
+                }
+            }
+
+            // Fallback: legacy default_config
+            if (currentConfigPath.empty())
+            {
+                std::string defaultName = ConfigSerializer::getDefaultConfig();
+                if (!defaultName.empty())
+                    currentConfigPath = ConfigSerializer::getConfigsDir() + "/" + defaultName + ".conf";
+            }
+
+            // Load current config if specified, otherwise use base
+            if (!currentConfigPath.empty())
+            {
+                std::ifstream file(currentConfigPath);
+                if (file.good())
+                {
+                    pConfig = std::make_shared<Config>(currentConfigPath);
+                    pConfig->setFallback(pBaseConfig.get());
+                    Logger::info("current config: " + currentConfigPath);
+                }
+                else
+                {
+                    pConfig = pBaseConfig;
+                }
             }
             else
             {
                 pConfig = pBaseConfig;
             }
-        }
-        else
-        {
-            pConfig = pBaseConfig;
-        }
 
-        // Enforce per-profile safe anti-cheat: override global depthCapture + hide layer
-        if (!activeProfilePath.empty())
-        {
-            ProfileSettings ps = ConfigSerializer::loadProfileSettings(activeProfilePath);
-            if (ps.safeAntiCheat)
+            // Enforce per-profile safe anti-cheat: override global depthCapture + hide layer
+            if (!activeProfilePath.empty())
             {
-                settingsManager.setSafeAntiCheat(true);
-                settingsManager.setDepthCapture(false);
-                Logger::info("safeAntiCheat enabled — depth capture forced off, layer hidden");
+                ProfileSettings ps = ConfigSerializer::loadProfileSettings(activeProfilePath);
+                if (ps.safeAntiCheat)
+                {
+                    settingsManager.setSafeAntiCheat(true);
+                    settingsManager.setDepthCapture(false);
+                    Logger::info("safeAntiCheat enabled — depth capture forced off, layer hidden");
+                }
             }
-        }
 
-        // Initialize effect registry with current config
-        effectRegistry.initialize(pConfig.get());
+            // Initialize effect registry with current config
+            effectRegistry.initialize(pConfig.get());
+        });
     }
 
     // Switch to a new config (called from overlay)
@@ -1648,40 +2098,110 @@ namespace vkShade
             }
         }
 
-        // Auto-discover .fx files in all shader manager discovered paths
+        // Helper: scan a list of directories for .fx files and add discovered effects
+        auto scanDirsForFx = [&](const std::vector<std::string>& dirs)
+        {
+            for (const auto& dir : dirs)
+            {
+                try
+                {
+                    for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                             dir, std::filesystem::directory_options::skip_permission_denied))
+                    {
+                        if (!entry.is_regular_file())
+                            continue;
+
+                        std::string ext = entry.path().extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                        if (ext != ".fx")
+                            continue;
+
+                        std::string effectName = entry.path().stem().string();
+
+                        if (knownEffects.find(effectName) != knownEffects.end())
+                            continue;
+
+                        defaultConfigEffects.push_back(effectName);
+                        effectPaths[effectName] = entry.path().string();
+                        knownEffects.insert(effectName);
+                    }
+                }
+                catch (const std::filesystem::filesystem_error& e)
+                {
+                    Logger::warn("failed to scan shader path " + dir + ": " + std::string(e.what()));
+                }
+            }
+        };
+
+        // Collect ALL directories to scan for .fx files
+        std::set<std::string> allScanDirs;  // deduplicate
+
+        // 1. reshadeIncludePath from config (colon-separated)
+        //    This is the most common way users configure shader paths,
+        //    but getAvailableEffects was previously not scanning it at all.
+        std::string includePath = pConfig->getOption<std::string>("reshadeIncludePath", "");
+        if (!includePath.empty())
+        {
+            std::stringstream ss(includePath);
+            std::string dir;
+            while (std::getline(ss, dir, ':'))
+            {
+                if (!dir.empty())
+                    allScanDirs.insert(dir);
+            }
+        }
+        // Also check the base config's reshadeIncludePath (via fallback)
+        if (pBaseConfig && pBaseConfig->getConfigFilePath() != pConfig->getConfigFilePath())
+        {
+            std::string baseInclude = pBaseConfig->getOption<std::string>("reshadeIncludePath", "");
+            if (!baseInclude.empty())
+            {
+                std::stringstream ss(baseInclude);
+                std::string dir;
+                while (std::getline(ss, dir, ':'))
+                {
+                    if (!dir.empty())
+                        allScanDirs.insert(dir);
+                }
+            }
+        }
+
+        // 2. Shader manager paths
         ShaderManagerConfig shaderMgrConfig = ConfigSerializer::loadShaderManagerConfig();
-        for (const auto& shaderPath : shaderMgrConfig.discoveredShaderPaths)
+
+        // 2a. Discovered shader paths (previously the only source scanned)
+        for (const auto& p : shaderMgrConfig.discoveredShaderPaths)
+            allScanDirs.insert(p);
+
+        // 2b. Parent directories — re-scan for Shaders/ subdirectories
+        //     (they may have been added after the last shader_manager.conf save,
+        //      or the initial scan may have missed them)
+        for (const auto& parentDir : shaderMgrConfig.parentDirectories)
         {
             try
             {
                 for (const auto& entry : std::filesystem::recursive_directory_iterator(
-                         shaderPath, std::filesystem::directory_options::skip_permission_denied))
+                         parentDir, std::filesystem::directory_options::skip_permission_denied))
                 {
-                    if (!entry.is_regular_file())
+                    if (!entry.is_directory())
                         continue;
 
-                    std::string ext = entry.path().extension().string();
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                    if (ext != ".fx")
-                        continue;
-
-                    // Effect name is filename without .fx extension
-                    std::string effectName = entry.path().stem().string();
-
-                    // Skip if already known (from config definitions or other paths)
-                    if (knownEffects.find(effectName) != knownEffects.end())
-                        continue;
-
-                    defaultConfigEffects.push_back(effectName);
-                    effectPaths[effectName] = entry.path().string();
-                    knownEffects.insert(effectName);
+                    std::string dirName = entry.path().filename().string();
+                    // Case-insensitive comparison for "Shaders"
+                    std::transform(dirName.begin(), dirName.end(), dirName.begin(), ::tolower);
+                    if (dirName == "shaders")
+                        allScanDirs.insert(entry.path().string());
                 }
             }
-            catch (const std::filesystem::filesystem_error& e)
-            {
-                Logger::warn("failed to scan shader path " + shaderPath + ": " + std::string(e.what()));
-            }
+            catch (const std::filesystem::filesystem_error&) {}
+
+            // Also scan the parent dir itself — users often place .fx files
+            // directly in the parent directory without a Shaders/ subdirectory.
+            allScanDirs.insert(parentDir);
         }
+
+        // Scan all collected directories for .fx files
+        scanDirsForFx({allScanDirs.begin(), allScanDirs.end()});
 
         // Sort discovered effects alphabetically
         std::sort(defaultConfigEffects.begin(), defaultConfigEffects.end());
@@ -2078,7 +2598,15 @@ namespace vkShade
 
         Logger::trace("vkDestroyInstance");
 
-        InstanceDispatch dispatchTable = instanceDispatchMap[GetKey(instance)];
+        auto it = instanceDispatchMap.find(GetKey(instance));
+        if (it == instanceDispatchMap.end())
+        {
+            // Not created through this layer; nothing we can safely do
+            Logger::trace("vkDestroyInstance: instance not tracked by this layer, skipping");
+            return;
+        }
+
+        InstanceDispatch dispatchTable = it->second;
 
         dispatchTable.DestroyInstance(instance, pAllocator);
 
@@ -2119,10 +2647,27 @@ namespace vkShade
         // check and activate extentions
         uint32_t extensionCount = 0;
 
-        instanceDispatchMap[GetKey(physicalDevice)].EnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
-        std::vector<VkExtensionProperties> extensionProperties(extensionCount);
-        instanceDispatchMap[GetKey(physicalDevice)].EnumerateDeviceExtensionProperties(
-            physicalDevice, nullptr, &extensionCount, extensionProperties.data());
+        std::vector<VkExtensionProperties> extensionProperties;
+
+        {
+            auto it = instanceDispatchMap.find(GetKey(physicalDevice));
+            if (it != instanceDispatchMap.end())
+            {
+                VkResult res = it->second.EnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+                if (res != VK_SUCCESS || extensionCount == 0)
+                {
+                    Logger::warn("EnumerateDeviceExtensionProperties failed or no extensions");
+                }
+                else
+                {
+                    extensionProperties.resize(extensionCount);
+                    res = it->second.EnumerateDeviceExtensionProperties(
+                        physicalDevice, nullptr, &extensionCount, extensionProperties.data());
+                    if (res != VK_SUCCESS)
+                        Logger::warn("EnumerateDeviceExtensionProperties second call failed");
+                }
+            }
+        }
 
         auto hasDeviceExtension = [&](const char* extensionName) {
             for (const VkExtensionProperties& properties : extensionProperties)
@@ -2292,6 +2837,31 @@ namespace vkShade
 
         fillDispatchTableDevice(*pDevice, gdpa, &pLogicalDevice->vkd);
 
+        // Query supported depth resolve modes once (VK_KHR_depth_resolve_mode,
+        // core since 1.2). Drives the MSAA depth resolve path selection and the
+        // Advanced UI mode selector. Every implementation must support at least
+        // SAMPLE_ZERO, so this never stays 0 on a conformant driver.
+        {
+            VkPhysicalDeviceDepthStencilResolveProperties resolveProps = {};
+            resolveProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES;
+            VkPhysicalDeviceProperties2 props2 = {};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &resolveProps;
+            if (instanceDispatchMap[GetKey(physicalDevice)].GetPhysicalDeviceProperties2)
+            {
+                instanceDispatchMap[GetKey(physicalDevice)].GetPhysicalDeviceProperties2(physicalDevice, &props2);
+                pLogicalDevice->supportedDepthResolveModes = resolveProps.supportedDepthResolveModes;
+                if (pLogicalDevice->supportedDepthResolveModes == 0)
+                    pLogicalDevice->supportedDepthResolveModes = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+            }
+            else
+            {
+                Logger::warn("vkGetPhysicalDeviceProperties2 unavailable; assuming SAMPLE_ZERO depth resolve only");
+                pLogicalDevice->supportedDepthResolveModes = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+            }
+            Logger::debug("supported depth resolve modes: " + std::to_string(pLogicalDevice->supportedDepthResolveModes));
+        }
+
         if (pLogicalDevice->gpuCrashDiagnosticsEnabled)
         {
             if (pLogicalDevice->supportsNvDiagnosticCheckpoints
@@ -2324,7 +2894,8 @@ namespace vkShade
         for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; i++)
         {
             auto& queueInfo = pCreateInfo->pQueueCreateInfos[i];
-            if ((queueProperties[queueInfo.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            if (queueInfo.queueFamilyIndex < queueProperties.size()
+                && (queueProperties[queueInfo.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT))
             {
                 pLogicalDevice->vkd.GetDeviceQueue(pLogicalDevice->device, queueInfo.queueFamilyIndex, 0, &pLogicalDevice->queue);
 
@@ -2335,7 +2906,11 @@ namespace vkShade
                 commandPoolCreateInfo.queueFamilyIndex = queueInfo.queueFamilyIndex;
 
                 Logger::debug("Found graphics capable queue");
-                pLogicalDevice->vkd.CreateCommandPool(pLogicalDevice->device, &commandPoolCreateInfo, nullptr, &pLogicalDevice->commandPool);
+                VkResult poolRes = pLogicalDevice->vkd.CreateCommandPool(pLogicalDevice->device, &commandPoolCreateInfo, nullptr, &pLogicalDevice->commandPool);
+                if (poolRes != VK_SUCCESS)
+                {
+                    Logger::err("CreateCommandPool failed: " + std::to_string(poolRes));
+                }
                 pLogicalDevice->queueFamilyIndex = queueInfo.queueFamilyIndex;
 
                 initializeDispatchTable(pLogicalDevice->queue, pLogicalDevice->device);
@@ -2364,10 +2939,49 @@ namespace vkShade
 
         Logger::trace("vkDestroyDevice");
 
-        LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
+        auto devIt = deviceMap.find(GetKey(device));
+        if (devIt == deviceMap.end() || !devIt->second)
+        {
+            // Not created through this layer; nothing to clean up
+            return;
+        }
+        LogicalDevice* pLogicalDevice = devIt->second.get();
+
+        // Destroy all swapchains belonging to this device first
+        for (auto swapIt = swapchainMap.begin(); swapIt != swapchainMap.end(); )
+        {
+            if (swapIt->second && swapIt->second->pLogicalDevice == pLogicalDevice)
+            {
+                swapIt->second->destroy();
+                swapIt = swapchainMap.erase(swapIt);
+            }
+            else
+            {
+                ++swapIt;
+            }
+        }
 
         // Destroy ImGui overlay before device (it uses device resources)
         pLogicalDevice->imguiOverlay.reset();
+
+        // Destroy persistent depth storage
+        destroyPersistentDepthStorage(pLogicalDevice);
+
+        // Destroy depth copy ring buffer pool and its fences
+        if (pLogicalDevice->depthCopyPool != VK_NULL_HANDLE)
+        {
+            Logger::debug("DestroyCommandPool (depth copy ring buffer)");
+            // Destroy fences first (they're independent of the pool)
+            for (VkFence f : pLogicalDevice->depthCopyRingFences)
+            {
+                if (f != VK_NULL_HANDLE)
+                    pLogicalDevice->vkd.DestroyFence(device, f, nullptr);
+            }
+            pLogicalDevice->depthCopyRingFences.clear();
+            pLogicalDevice->vkd.DestroyCommandPool(device, pLogicalDevice->depthCopyPool, pAllocator);
+            pLogicalDevice->depthCopyPool = VK_NULL_HANDLE;
+            pLogicalDevice->depthCopyRingBufs.clear();
+        }
 
         // Clean up Wayland input resources (no-op if not initialized)
         cleanupWaylandKeyboard();
@@ -2602,7 +3216,7 @@ namespace vkShade
         uint32_t fakeImageCount = static_cast<uint32_t>(fakeImageCount64);
 
         pLogicalSwapchain->fakeImages =
-            createFakeSwapchainImages(pLogicalDevice, pLogicalSwapchain->swapchainCreateInfo, fakeImageCount, pLogicalSwapchain->fakeImageMemory);
+            createFakeSwapchainImages(pLogicalDevice, pLogicalSwapchain->swapchainCreateInfo, fakeImageCount, pLogicalSwapchain->fakeImageMemories);
         if (pLogicalSwapchain->fakeImages.empty())
         {
             Logger::err("Failed to create fake swapchain images");
@@ -2642,12 +3256,30 @@ namespace vkShade
         writeCommandBuffers(pLogicalDevice,
                             pLogicalSwapchain,
                             pLogicalSwapchain->effects,
-                            pLogicalSwapchain->commandBuffersEffect);
+                            pLogicalSwapchain->commandBuffersEffect,
+                            depth);
         Logger::debug("wrote CommandBuffers");
 
         pLogicalSwapchain->semaphores = createSemaphores(pLogicalDevice, pLogicalSwapchain->imageCount);
         pLogicalSwapchain->overlaySemaphores = createSemaphores(pLogicalDevice, pLogicalSwapchain->imageCount);
-        Logger::debug("created semaphores");
+
+        // Create per-image fences for effect CB submission tracking.
+        // These ensure we don't update descriptor sets or free CBs while
+        // the GPU is still using them (which causes VK_ERROR_DEVICE_LOST).
+        pLogicalSwapchain->effectSubmitFences.resize(pLogicalSwapchain->imageCount, VK_NULL_HANDLE);
+        VkFenceCreateInfo fci = {};
+        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        for (uint32_t i = 0; i < pLogicalSwapchain->imageCount; ++i)
+        {
+            VkResult fr = pLogicalDevice->vkd.CreateFence(pLogicalDevice->device, &fci, nullptr, &pLogicalSwapchain->effectSubmitFences[i]);
+            if (fr != VK_SUCCESS)
+            {
+                Logger::err("Failed to create effect submit fence for image " + std::to_string(i) + ": " + std::to_string(fr));
+                pLogicalSwapchain->effectSubmitFences[i] = VK_NULL_HANDLE;
+            }
+        }
+
+        Logger::debug("created semaphores + fences");
         for (unsigned int i = 0; i < pLogicalSwapchain->imageCount; i++)
         {
             Logger::debug(std::to_string(i) + " written commandbuffer " + convertToString(pLogicalSwapchain->commandBuffersEffect[i]));
@@ -2667,7 +3299,8 @@ namespace vkShade
         writeCommandBuffers(pLogicalDevice,
                             pLogicalSwapchain,
                             {pLogicalSwapchain->defaultTransfer},
-                            pLogicalSwapchain->commandBuffersNoEffect);
+                            pLogicalSwapchain->commandBuffersNoEffect,
+                            depth);
 
         for (unsigned int i = 0; i < pLogicalSwapchain->imageCount; i++)
         {
@@ -2709,6 +3342,241 @@ namespace vkShade
         *pCount = std::min<uint32_t>(requestedImageCapacity, pLogicalSwapchain->imageCount);
         std::memcpy(pSwapchainImages, pLogicalSwapchain->fakeImages.data(), sizeof(VkImage) * (*pCount));
         return requestedImageCapacity < pLogicalSwapchain->imageCount ? VK_INCOMPLETE : VK_SUCCESS;
+    }
+
+    // --- v3 Deferred Depth Copy: QueueSubmit interception ---
+    // When depthCaptureMethod == 1 or 2, we intercept QueueSubmit to inject a
+    // depth copy command buffer into the last submit. The copy is recorded
+    // into a ring-buffered CB from a dedicated transient pool, using the
+    // correct source layout obtained from the render pass's depth attachment
+    // finalLayout at CmdBeginRenderPass time.
+    VKAPI_ATTR VkResult VKAPI_CALL vkShade_QueueSubmit(VkQueue queue,
+                                                       uint32_t submitCount,
+                                                       const VkSubmitInfo* pSubmits,
+                                                       VkFence fence)
+    {
+        LogicalDevice* pLogicalDevice = nullptr;
+        {
+            scoped_lock l(globalLock);
+            auto devIt = deviceMap.find(GetKey(queue));
+            if (devIt != deviceMap.end())
+                pLogicalDevice = devIt->second.get();
+        }
+
+        const int method = settingsManager.getDepthCaptureMethod();
+        if (!pLogicalDevice || method < 1 || method > 2
+            || !settingsManager.getDepthCapture()
+            || !pLogicalDevice->pendingDepthCopy.pending
+            || submitCount == 0 || !pSubmits)
+        {
+            if (pLogicalDevice)
+                return pLogicalDevice->vkd.QueueSubmit(queue, submitCount, pSubmits, fence);
+            return reinterpret_cast<PFN_vkQueueSubmit>(dlsym(RTLD_NEXT, "vkQueueSubmit"))(queue, submitCount, pSubmits, fence);
+        }
+
+        // --- v3 Deferred Depth Copy ---
+        DepthState captureDepth = pLogicalDevice->pendingDepthCopy.depthState;
+        VkImageLayout sourceLayout = pLogicalDevice->pendingDepthCopy.sourceLayout;
+        pLogicalDevice->pendingDepthCopy.pending = false;
+
+        if (!hasDepthState(captureDepth) || !validateDepthStateForResolve(pLogicalDevice, captureDepth))
+        {
+            Logger::debug("QueueSubmit v3: skipping invalid/stale depth state");
+            return pLogicalDevice->vkd.QueueSubmit(queue, submitCount, pSubmits, fence);
+        }
+
+        // Ensure ring buffer is initialized
+        if (pLogicalDevice->depthCopyRingBufs.empty())
+        {
+            VkCommandPoolCreateInfo poolCI = {};
+            poolCI.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolCI.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            poolCI.queueFamilyIndex = pLogicalDevice->queueFamilyIndex;
+            pLogicalDevice->vkd.CreateCommandPool(pLogicalDevice->device, &poolCI, nullptr, &pLogicalDevice->depthCopyPool);
+
+            VkCommandBufferAllocateInfo cbai = {};
+            cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            cbai.commandPool = pLogicalDevice->depthCopyPool;
+            cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cbai.commandBufferCount = LogicalDevice::DEPTH_COPY_RING_SIZE;
+            pLogicalDevice->depthCopyRingBufs.resize(LogicalDevice::DEPTH_COPY_RING_SIZE);
+            pLogicalDevice->vkd.AllocateCommandBuffers(pLogicalDevice->device, &cbai, pLogicalDevice->depthCopyRingBufs.data());
+
+            for (auto cb : pLogicalDevice->depthCopyRingBufs)
+                initializeDispatchTable(cb, pLogicalDevice->device);
+
+            // Create one fence per ring slot — we signal it on submit and wait
+            // before reusing the slot.  This prevents resetting a CB that the GPU
+            // is still executing (which causes VK_ERROR_DEVICE_LOST).
+            pLogicalDevice->depthCopyRingFences.resize(LogicalDevice::DEPTH_COPY_RING_SIZE, VK_NULL_HANDLE);
+            VkFenceCreateInfo fci = {};
+            fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            for (uint32_t i = 0; i < LogicalDevice::DEPTH_COPY_RING_SIZE; ++i)
+            {
+                VkResult fr = pLogicalDevice->vkd.CreateFence(pLogicalDevice->device, &fci, nullptr, &pLogicalDevice->depthCopyRingFences[i]);
+                if (fr != VK_SUCCESS)
+                {
+                    Logger::err("QueueSubmit v3: failed to create depth copy fence for slot " + std::to_string(i) + " (" + std::to_string(fr) + ")");
+                    // Continue without this slot's fence — we'll still try to use it,
+                    // but device loss is possible if the slot wraps around.
+                }
+            }
+
+            Logger::debug("depth copy ring buffer initialized: " + std::to_string(LogicalDevice::DEPTH_COPY_RING_SIZE) + " CBs + fences");
+        }
+
+        // Get next CB from ring buffer
+        const uint32_t slotIndex = pLogicalDevice->depthCopyRingIndex % LogicalDevice::DEPTH_COPY_RING_SIZE;
+        VkCommandBuffer copyCB = pLogicalDevice->depthCopyRingBufs[slotIndex];
+        pLogicalDevice->depthCopyRingIndex++;
+
+        // CRITICAL: Wait for this slot's fence BEFORE resetting the command buffer.
+        // The fence was signaled when we last submitted this slot's CB.  If the GPU
+        // is still executing it, WaitForFences blocks here — annoying but safe.
+        // Skipping this wait causes VK_ERROR_DEVICE_LOST because we'd be resetting
+        // a CB that's still in-flight.
+        if (slotIndex < pLogicalDevice->depthCopyRingFences.size() && pLogicalDevice->depthCopyRingFences[slotIndex] != VK_NULL_HANDLE)
+        {
+            VkResult waitResult = pLogicalDevice->vkd.WaitForFences(
+                pLogicalDevice->device, 1, &pLogicalDevice->depthCopyRingFences[slotIndex],
+                VK_TRUE, UINT64_MAX);  // Infinite timeout — correctness over latency
+            if (waitResult == VK_ERROR_DEVICE_LOST)
+            {
+                Logger::err("QueueSubmit v3: WaitForFences returned DEVICE_LOST for depth copy slot " + std::to_string(slotIndex));
+                // Continue anyway — we're about to lose the device regardless
+            }
+            pLogicalDevice->vkd.ResetFences(pLogicalDevice->device, 1, &pLogicalDevice->depthCopyRingFences[slotIndex]);
+        }
+
+        pLogicalDevice->vkd.ResetCommandBuffer(copyCB, 0);
+
+        // Determine storage format
+        const VkFormat storageFormat = (sourceLayout == VK_IMAGE_LAYOUT_GENERAL)
+            ? VK_FORMAT_R32_SFLOAT
+            : captureDepth.format;
+
+        ensurePersistentDepthStorage(pLogicalDevice, storageFormat, captureDepth.extent);
+        auto& storage = pLogicalDevice->depthCaptureStorage;
+        if (storage.image == VK_NULL_HANDLE)
+            return pLogicalDevice->vkd.QueueSubmit(queue, submitCount, pSubmits, fence);
+
+        const bool isMsaa = captureDepth.samples != VK_SAMPLE_COUNT_1_BIT;
+        const VkImageAspectFlags depthAspect = isStencilFormat(captureDepth.format)
+            ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+            : VK_IMAGE_ASPECT_DEPTH_BIT;
+
+        // Record the copy
+        VkCommandBufferBeginInfo cbbi = {};
+        cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        pLogicalDevice->vkd.BeginCommandBuffer(copyCB, &cbbi);
+
+        // Barrier: source from KNOWN sourceLayout → TRANSFER_SRC
+        VkImageMemoryBarrier barriers[2] = {};
+        barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[0].image = captureDepth.image;
+        barriers[0].oldLayout = (sourceLayout != VK_IMAGE_LAYOUT_UNDEFINED) ? sourceLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barriers[0].srcAccessMask = (sourceLayout == VK_IMAGE_LAYOUT_GENERAL)
+            ? (VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT)
+            : (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+        barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[0].subresourceRange = {depthAspect, 0, 1, 0, 1};
+
+        // Barrier: storage → TRANSFER_DST
+        barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barriers[1].image = storage.image;
+        barriers[1].oldLayout = storage.valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barriers[1].srcAccessMask = storage.valid ? VK_ACCESS_SHADER_READ_BIT : 0;
+        barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barriers[1].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+        VkPipelineStageFlags srcStages = (sourceLayout == VK_IMAGE_LAYOUT_GENERAL)
+            ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+            : (VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+
+        pLogicalDevice->vkd.CmdPipelineBarrier(copyCB, srcStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, barriers);
+
+        if (isMsaa)
+        {
+            VkImageResolve resolveRegion = {};
+            resolveRegion.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            resolveRegion.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            resolveRegion.extent = {captureDepth.extent.width, captureDepth.extent.height, 1};
+            pLogicalDevice->vkd.CmdResolveImage(copyCB, captureDepth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, storage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &resolveRegion);
+        }
+        else
+        {
+            VkImageCopy copyRegion = {};
+            copyRegion.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            copyRegion.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            copyRegion.extent = {captureDepth.extent.width, captureDepth.extent.height, 1};
+            pLogicalDevice->vkd.CmdCopyImage(copyCB, captureDepth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, storage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+        }
+
+        // Barrier: storage → SHADER_READ_ONLY
+        VkImageMemoryBarrier readOnlyBarrier = {};
+        readOnlyBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        readOnlyBarrier.image = storage.image;
+        readOnlyBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        readOnlyBarrier.newLayout = isStencilFormat(storage.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+        readOnlyBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        readOnlyBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        readOnlyBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        readOnlyBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        readOnlyBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+        pLogicalDevice->vkd.CmdPipelineBarrier(copyCB, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &readOnlyBarrier);
+
+        pLogicalDevice->vkd.EndCommandBuffer(copyCB);
+        storage.valid = true;
+
+        Logger::debug("QueueSubmit v3: depth copy via ring CB index=" + std::to_string((pLogicalDevice->depthCopyRingIndex - 1) % LogicalDevice::DEPTH_COPY_RING_SIZE)
+                      + " " + std::to_string(captureDepth.extent.width) + "x" + std::to_string(captureDepth.extent.height)
+                      + " fmt=" + std::to_string(storageFormat)
+                      + " srcLayout=" + std::to_string(static_cast<uint32_t>(sourceLayout))
+                      + (isMsaa ? " [MSAA resolve]" : " [copy]"));
+
+        // Inject copyCB into the last submit's command buffer list
+        const VkSubmitInfo& lastSubmit = pSubmits[submitCount - 1];
+        std::vector<VkCommandBuffer> combinedCmdBufs(lastSubmit.pCommandBuffers, lastSubmit.pCommandBuffers + lastSubmit.commandBufferCount);
+        combinedCmdBufs.push_back(copyCB);
+
+        VkSubmitInfo modifiedLastSubmit = lastSubmit;
+        modifiedLastSubmit.commandBufferCount = static_cast<uint32_t>(combinedCmdBufs.size());
+        modifiedLastSubmit.pCommandBuffers = combinedCmdBufs.data();
+
+        // Update activeDepthState to persistent storage (under lock)
+        {
+            scoped_lock l(globalLock);
+            DepthState storageState = captureDepth;
+            storageState.image = storage.image;
+            storageState.imageView = storage.view;
+            storageState.format = storage.format;
+            storageState.samples = VK_SAMPLE_COUNT_1_BIT;
+            storageState.transient = false;
+            storageState.observedLayout = isStencilFormat(storage.format) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+            updateDeviceDepthStateLocked(pLogicalDevice, storageState, "QueueSubmit v3");
+        }
+
+        // Submit — no splitting, just replace the last submit
+        // Signal this slot's fence so we can safely reuse it later
+        const uint32_t submittedSlot = (pLogicalDevice->depthCopyRingIndex - 1) % LogicalDevice::DEPTH_COPY_RING_SIZE;
+        VkFence slotFence = (submittedSlot < pLogicalDevice->depthCopyRingFences.size())
+            ? pLogicalDevice->depthCopyRingFences[submittedSlot] : VK_NULL_HANDLE;
+
+        if (submitCount <= 1)
+            return pLogicalDevice->vkd.QueueSubmit(queue, 1, &modifiedLastSubmit, slotFence);
+
+        // Multiple submits: pass through first N-1 unchanged, replace last
+        VkResult vr = pLogicalDevice->vkd.QueueSubmit(queue, submitCount - 1, pSubmits, VK_NULL_HANDLE);
+        if (vr == VK_SUCCESS)
+            vr = pLogicalDevice->vkd.QueueSubmit(queue, 1, &modifiedLastSubmit, slotFence);
+        return vr;
     }
 
     VKAPI_ATTR VkResult VKAPI_CALL vkShade_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
@@ -2792,6 +3660,69 @@ namespace vkShade
                 initLogged = true;
             }
 
+            // --- Deferred startup reload ---
+            // Arm on the first present call so the timer starts counting
+            // from the moment the game actually begins rendering.
+            if (!deferredStartupReload.fired && !deferredStartupReload.armed)
+                deferredStartupReload.armed = true;
+
+            if (deferredStartupReload.armed && !deferredStartupReload.fired)
+            {
+                if (deferredStartupReload.firstPresentTime.time_since_epoch().count() == 0)
+                    deferredStartupReload.firstPresentTime = std::chrono::steady_clock::now();
+
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - deferredStartupReload.firstPresentTime).count();
+
+                if (elapsed >= DEFERRED_STARTUP_RELOAD_MS)
+                {
+                    deferredStartupReload.fired = true;
+                    Logger::info("deferred startup reload: re-reading config "
+                                 "(" + std::to_string(elapsed) + "ms after first present)");
+
+                    // Re-read config (picks up any late-populated shader_manager.conf)
+                    pConfig->reload();
+                    cachedEffects.initialized = false;
+                    cachedParams.dirty = true;
+
+                    // Re-populate selected effects from the refreshed config.
+                    // We do NOT call effectRegistry.initialize() here because
+                    // it calls effects.clear() which wipes the entire parsed
+                    // effect list (parameters, preprocessor defs, compile
+                    // results).  Instead we ensure each selected effect
+                    // exists in the registry — now that shader_manager.conf
+                    // and the filesystem are ready, findEffectPath() will
+                    // succeed where it failed during the first init.
+                    //
+                    // We cannot call initializeSelectedEffectsFromConfig()
+                    // because its once-guard (initializedFromConfig) was
+                    // already tripped during the first swapchain setup, so
+                    // we duplicate the essential work here.
+                    {
+                        std::vector<std::string> cfgEffs   = pConfig->getOption<std::vector<std::string>>("effects", {});
+                        std::vector<std::string> disEffs   = pConfig->getOption<std::vector<std::string>>("disabledEffects", {});
+                        std::set<std::string>      disSet(disEffs.begin(), disEffs.end());
+                        for (const auto& n : cfgEffs)
+                        {
+                            effectRegistry.ensureEffect(n);
+                            effectRegistry.setEffectEnabled(n, disSet.find(n) == disSet.end());
+                        }
+                        effectRegistry.setSelectedEffects(cfgEffs);
+                    }
+
+                    const auto& sel = effectRegistry.getSelectedEffects();
+                    reloadAllSwapchains(pDeviceForSettings, sel);
+                    pDeviceForSettings->depthReallocPending = false;
+
+                    // Update overlay with the refreshed effect list
+                    if (pDeviceForSettings->imguiOverlay)
+                    {
+                        std::vector<std::string> disabledEffs = pConfig->getOption<std::vector<std::string>>("disabledEffects", {});
+                        pDeviceForSettings->imguiOverlay->setSelectedEffects(sel, disabledEffs);
+                    }
+                }
+            }
+
             // Toggle effect on/off (keyboard)
             if (handleKeyPress(keySymbol, pressed))
                 presentEffect = !presentEffect;
@@ -2824,6 +3755,13 @@ namespace vkShade
             {
                 presentEffect = !presentEffect;
                 pLogicalDevice->imguiOverlay->clearToggleEffectsRequest();
+            }
+
+            // Depth pin changed — trigger reload so command buffers pick up the new depth
+            if (pLogicalDevice->imguiOverlay && pLogicalDevice->imguiOverlay->hasDepthPinChanged())
+            {
+                pLogicalDevice->imguiOverlay->clearDepthPinChanged();
+                shouldReload = true;
             }
 
             if (pLogicalDevice->imguiOverlay && pLogicalDevice->imguiOverlay->hasModifiedParams())
@@ -2863,6 +3801,9 @@ namespace vkShade
                         : pConfig->getOption<std::vector<std::string>>("effects", {});
 
                     reloadAllSwapchains(pLogicalDevice, activeEffects);
+                    // reloadAllSwapchains does full QueueWaitIdle + reallocate,
+                    // so any pending deferred depth realloc is now satisfied.
+                    pLogicalDevice->depthReallocPending = false;
                 }
             }
 
@@ -2886,6 +3827,7 @@ namespace vkShade
                             continue;
                         reloadEffectsForSwapchain(pSwapchain.get(), pConfig.get(), selectedEffects);
                     }
+                    pLogicalDevice->depthReallocPending = false;
                 }
             }
 
@@ -2894,6 +3836,20 @@ namespace vkShade
             updateOverlayState(pLogicalDevice, presentEffect);
             presentEffectSnapshot = presentEffect;
             pLogicalDeviceShared = devIt->second;
+
+            // --- Deferred depth reallocation (GPU-safe) ---
+            // When a depth candidate is promoted during CmdEndRenderPass (or
+            // DestroyImage/DestroyImageView), the old effect command buffers may
+            // still be in-flight on the GPU.  We set depthReallocPending=true
+            // instead of freeing them immediately.  Now, before we select and
+            // submit command buffers for this frame, idle the GPU and reallocate.
+            // (Same pattern as reloadEffectsForSwapchain which also calls
+            // QueueWaitIdle under globalLock.)
+            if (pLogicalDevice->depthReallocPending)
+            {
+                pLogicalDevice->vkd.QueueWaitIdle(pLogicalDevice->queue);
+                performDeferredDepthRealloc(pLogicalDevice);
+            }
 
             presentSwapchains.reserve(pPresentInfo->swapchainCount);
             presentIndices.reserve(pPresentInfo->swapchainCount);
@@ -2975,7 +3931,11 @@ namespace vkShade
             submitInfo.signalSemaphoreCount = 1;
             submitInfo.pSignalSemaphores    = &pLogicalSwapchain->semaphores[index];
 
-            VkResult vr = pLogicalDevice->vkd.QueueSubmit(pLogicalDevice->queue, 1, &submitInfo, VK_NULL_HANDLE);
+            // Signal this image's fence so we can safely update its
+            // descriptor sets and rebuild its command buffer in future frames.
+            VkFence effectFence = (index < pLogicalSwapchain->effectSubmitFences.size())
+                ? pLogicalSwapchain->effectSubmitFences[index] : VK_NULL_HANDLE;
+            VkResult vr = pLogicalDevice->vkd.QueueSubmit(pLogicalDevice->queue, 1, &submitInfo, effectFence);
             if (vr != VK_SUCCESS)
             {
                 reportDeviceLostDiagnostics(pLogicalDevice, pLogicalDevice->queue, "vkQueueSubmit(effect)", vr);
@@ -3013,11 +3973,15 @@ namespace vkShade
         // we need to delete the infos of the oldswapchain
 
         Logger::trace("vkDestroySwapchainKHR " + convertToString(swapchain));
-        swapchainMap[swapchain]->destroy();
-        swapchainMap.erase(swapchain);
-        LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
-
-        pLogicalDevice->vkd.DestroySwapchainKHR(device, swapchain, pAllocator);
+        {
+            auto it = swapchainMap.find(swapchain);
+            if (it != swapchainMap.end() && it->second)
+                it->second->destroy();
+            swapchainMap.erase(swapchain);
+        }
+        auto devIt = deviceMap.find(GetKey(device));
+        if (devIt != deviceMap.end() && devIt->second)
+            devIt->second->vkd.DestroySwapchainKHR(device, swapchain, pAllocator);
     }
 
     VKAPI_ATTR VkResult VKAPI_CALL vkShade_CreateRenderPass(VkDevice device,
@@ -3027,8 +3991,23 @@ namespace vkShade
     {
         scoped_lock l(globalLock);
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
+        VkResult vr;
         if (!vkShade::settingsManager.getDepthCapture() || !pCreateInfo || pCreateInfo->attachmentCount == 0)
-            return pLogicalDevice->vkd.CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         std::vector<VkAttachmentDescription> attachments(
             pCreateInfo->pAttachments,
@@ -3039,13 +4018,39 @@ namespace vkShade
             changed = forceDepthAttachmentStoreOp(attachment) || changed;
 
         if (!changed)
-            return pLogicalDevice->vkd.CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         VkRenderPassCreateInfo createInfo = *pCreateInfo;
         createInfo.pAttachments = attachments.data();
         Logger::debug("forcing depth attachment storeOp=STORE for VkRenderPassCreateInfo with attachmentCount="
                       + std::to_string(createInfo.attachmentCount));
-        return pLogicalDevice->vkd.CreateRenderPass(device, &createInfo, pAllocator, pRenderPass);
+        vr = pLogicalDevice->vkd.CreateRenderPass(device, &createInfo, pAllocator, pRenderPass);
+        if (vr == VK_SUCCESS && pRenderPass)
+        {
+            for (uint32_t ai = 0; ai < createInfo.attachmentCount; ai++)
+            {
+                if (isDepthFormat(createInfo.pAttachments[ai].format))
+                {
+                    renderPassDepthFinalLayouts[*pRenderPass] = createInfo.pAttachments[ai].finalLayout;
+                    break;
+                }
+            }
+        }
+        return vr;
     }
 
     VKAPI_ATTR VkResult VKAPI_CALL vkShade_CreateRenderPass2(VkDevice device,
@@ -3055,8 +4060,23 @@ namespace vkShade
     {
         scoped_lock l(globalLock);
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
+        VkResult vr;
         if (!vkShade::settingsManager.getDepthCapture() || !pCreateInfo || pCreateInfo->attachmentCount == 0)
-            return pLogicalDevice->vkd.CreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         std::vector<VkAttachmentDescription2> attachments(
             pCreateInfo->pAttachments,
@@ -3067,13 +4087,39 @@ namespace vkShade
             changed = forceDepthAttachmentStoreOp(attachment) || changed;
 
         if (!changed)
-            return pLogicalDevice->vkd.CreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         VkRenderPassCreateInfo2 createInfo = *pCreateInfo;
         createInfo.pAttachments = attachments.data();
         Logger::debug("forcing depth attachment storeOp=STORE for VkRenderPassCreateInfo2 with attachmentCount="
                       + std::to_string(createInfo.attachmentCount));
-        return pLogicalDevice->vkd.CreateRenderPass2(device, &createInfo, pAllocator, pRenderPass);
+        vr = pLogicalDevice->vkd.CreateRenderPass2(device, &createInfo, pAllocator, pRenderPass);
+        if (vr == VK_SUCCESS && pRenderPass)
+        {
+            for (uint32_t ai = 0; ai < createInfo.attachmentCount; ai++)
+            {
+                if (isDepthFormat(createInfo.pAttachments[ai].format))
+                {
+                    renderPassDepthFinalLayouts[*pRenderPass] = createInfo.pAttachments[ai].finalLayout;
+                    break;
+                }
+            }
+        }
+        return vr;
     }
 
     VKAPI_ATTR VkResult VKAPI_CALL vkShade_CreateRenderPass2KHR(VkDevice device,
@@ -3083,8 +4129,23 @@ namespace vkShade
     {
         scoped_lock l(globalLock);
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
+        VkResult vr;
         if (!vkShade::settingsManager.getDepthCapture() || !pCreateInfo || pCreateInfo->attachmentCount == 0)
-            return pLogicalDevice->vkd.CreateRenderPass2KHR(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass2KHR(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         std::vector<VkAttachmentDescription2> attachments(
             pCreateInfo->pAttachments,
@@ -3095,13 +4156,50 @@ namespace vkShade
             changed = forceDepthAttachmentStoreOp(attachment) || changed;
 
         if (!changed)
-            return pLogicalDevice->vkd.CreateRenderPass2KHR(device, pCreateInfo, pAllocator, pRenderPass);
+        {
+            vr = pLogicalDevice->vkd.CreateRenderPass2KHR(device, pCreateInfo, pAllocator, pRenderPass);
+            if (vr == VK_SUCCESS && pRenderPass)
+            {
+                for (uint32_t ai = 0; ai < pCreateInfo->attachmentCount; ai++)
+                {
+                    if (isDepthFormat(pCreateInfo->pAttachments[ai].format))
+                    {
+                        renderPassDepthFinalLayouts[*pRenderPass] = pCreateInfo->pAttachments[ai].finalLayout;
+                        break;
+                    }
+                }
+            }
+            return vr;
+        }
 
         VkRenderPassCreateInfo2 createInfo = *pCreateInfo;
         createInfo.pAttachments = attachments.data();
         Logger::debug("forcing depth attachment storeOp=STORE for VkRenderPassCreateInfo2KHR with attachmentCount="
                       + std::to_string(createInfo.attachmentCount));
-        return pLogicalDevice->vkd.CreateRenderPass2KHR(device, &createInfo, pAllocator, pRenderPass);
+        vr = pLogicalDevice->vkd.CreateRenderPass2KHR(device, &createInfo, pAllocator, pRenderPass);
+        if (vr == VK_SUCCESS && pRenderPass)
+        {
+            for (uint32_t ai = 0; ai < createInfo.attachmentCount; ai++)
+            {
+                if (isDepthFormat(createInfo.pAttachments[ai].format))
+                {
+                    renderPassDepthFinalLayouts[*pRenderPass] = createInfo.pAttachments[ai].finalLayout;
+                    break;
+                }
+            }
+        }
+        return vr;
+    }
+
+    VKAPI_ATTR void VKAPI_CALL vkShade_DestroyRenderPass(VkDevice device, VkRenderPass renderPass, const VkAllocationCallbacks* pAllocator)
+    {
+        renderPassDepthFinalLayouts.erase(renderPass);
+        if (!device)
+            return;
+        scoped_lock l(globalLock);
+        auto devIt = deviceMap.find(GetKey(device));
+        if (devIt != deviceMap.end() && devIt->second)
+            devIt->second->vkd.DestroyRenderPass(device, renderPass, pAllocator);
     }
 
     VKAPI_ATTR VkResult VKAPI_CALL vkShade_CreateImage(VkDevice                     device,
@@ -3119,21 +4217,49 @@ namespace vkShade
         scoped_lock l(globalLock);
 
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();
-        if (isDepthFormat(pCreateInfo->format) && pCreateInfo->samples == VK_SAMPLE_COUNT_1_BIT
+        if (isDepthFormat(pCreateInfo->format)
             && ((pCreateInfo->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))
         {
-            DepthImageMetadata metadata = {
-                pCreateInfo->usage,
-                pCreateInfo->samples,
-                pCreateInfo->tiling,
-            };
             Logger::debug("detected depth image with format: " + convertToString(pCreateInfo->format));
             Logger::debug(std::to_string(pCreateInfo->extent.width) + "x" + std::to_string(pCreateInfo->extent.height));
+            Logger::debug("samples: " + convertToString(pCreateInfo->samples));
             Logger::debug(
                 std::to_string((pCreateInfo->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
 
             VkImageCreateInfo modifiedCreateInfo = *pCreateInfo;
+            // Add usage flags required for the resolve/copy and shader-resolve
+            // paths. MSAA depth images are resolved down to 1 sample before
+            // effects sample them, but the source still needs TRANSFER_SRC for
+            // vkCmdResolveImage and SAMPLED for the shader fallback.
+            //
+            // CRITICAL: TRANSIENT_ATTACHMENT_BIT cannot coexist with SAMPLED_BIT
+            // or TRANSFER_SRC_BIT per the Vulkan spec (VUID-VkImageCreateInfo-usage-00963).
+            // Mobile apps (e.g. Roblox via Sober) frequently allocate depth buffers
+            // with TRANSIENT_ATTACHMENT_BIT for lazy memory allocation on tiled
+            // renderers. If we leave TRANSIENT set while adding SAMPLED+TRANSFER_SRC,
+            // CreateImage succeeds on some drivers but the image's memory is not
+            // backed outside the app's render pass — sampling it yields garbage
+            // (which is why depth appears blank in Roblox while color postproc works).
+            // Strip TRANSIENT so the image is fully backed and sampleable.
+            if (modifiedCreateInfo.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+            {
+                modifiedCreateInfo.usage &= ~VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+                Logger::info("stripped VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT from depth image "
+                             "(format=" + convertToString(pCreateInfo->format)
+                             + ", samples=" + convertToString(pCreateInfo->samples)
+                             + ") — required for layer-side sampling/resolve");
+            }
             modifiedCreateInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+            // Metadata reflects the *actual* usage flags passed to the driver
+            // (post-modification), so downstream code can correctly reason about
+            // what the image can do.
+            DepthImageMetadata metadata = {
+                modifiedCreateInfo.usage,
+                pCreateInfo->samples,
+                pCreateInfo->tiling,
+            };
+
             VkResult result = pLogicalDevice->vkd.CreateImage(device, &modifiedCreateInfo, pAllocator, pImage);
             if (result != VK_SUCCESS)
                 return result;
@@ -3214,6 +4340,15 @@ namespace vkShade
             return result;
 
         size_t i = std::distance(pLogicalDevice->depthImages.begin(), imageIt);
+        // Bounds-check the parallel vectors before indexing.
+        if (i >= pLogicalDevice->depthFormats.size())
+        {
+            Logger::warn("CreateImageView: depth image index " + std::to_string(i)
+                         + " out of depthFormats range (" + std::to_string(pLogicalDevice->depthFormats.size())
+                         + "); skipping depth view tracking for image="
+                         + convertToString(pCreateInfo->image));
+            return result;
+        }
         VkImageView sampledView = getOrCreateTrackedDepthSampleViewLocked(pLogicalDevice, pCreateInfo->image, pLogicalDevice->depthFormats[i]);
         Logger::debug("tracked depth image view created: appView=" + convertToString(*pView)
                       + " sampledView=" + convertToString(sampledView)
@@ -3226,6 +4361,12 @@ namespace vkShade
         auto extentIt = pLogicalDevice->depthImageExtents.find(depth.image);
         if (extentIt != pLogicalDevice->depthImageExtents.end())
             depth.extent = extentIt->second;
+        auto metadataIt = pLogicalDevice->depthImageMetadata.find(depth.image);
+        if (metadataIt != pLogicalDevice->depthImageMetadata.end())
+        {
+            depth.samples = metadataIt->second.samples;
+            depth.transient = (metadataIt->second.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) != 0;
+        }
         pLogicalDevice->depthViewStates[*pView] = depth;
 
         return result;
@@ -3262,7 +4403,18 @@ namespace vkShade
         if (pLogicalDevice->activeDepthState.imageView == imageView)
         {
             pLogicalDevice->activeDepthState = {};
-            updateDeviceDepthStateLocked(pLogicalDevice, getDepthState(pLogicalDevice), "DestroyImageView");
+            // Clear stale pin: the pinned view was just destroyed, so
+            // getDepthState() would fall back to the (now-empty) active state.
+            pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
+            DepthState depth = getDepthState(pLogicalDevice);
+            updateDeviceDepthStateLocked(pLogicalDevice, depth, "DestroyImageView");
+        }
+        else if (pLogicalDevice->pinnedDepthImageView == imageView)
+        {
+            // Pinned view destroyed but it wasn't the active depth — just
+            // clear the pin so we fall back to auto-promotion.
+            Logger::debug("DestroyImageView: clearing stale pinned depth view");
+            pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
         }
 
         pLogicalDevice->vkd.DestroyImageView(device, imageView, pAllocator);
@@ -3360,10 +4512,15 @@ namespace vkShade
             if (devIt != deviceMap.end())
             {
                 pLogicalDevice = devIt->second.get();
+                VkImageLayout rpDepthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                auto rpLayoutIt = renderPassDepthFinalLayouts.find(pRenderPassBegin->renderPass);
+                if (rpLayoutIt != renderPassDepthFinalLayouts.end())
+                    rpDepthFinalLayout = rpLayoutIt->second;
                 beginTrackedDepthScope(pLogicalDevice,
                                        commandBuffer,
                                        selectDepthStateFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
-                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin));
+                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
+                                       rpDepthFinalLayout);
             }
         }
 
@@ -3391,10 +4548,15 @@ namespace vkShade
             if (devIt != deviceMap.end())
             {
                 pLogicalDevice = devIt->second.get();
+                VkImageLayout rpDepthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                auto rpLayoutIt = renderPassDepthFinalLayouts.find(pRenderPassBegin->renderPass);
+                if (rpLayoutIt != renderPassDepthFinalLayouts.end())
+                    rpDepthFinalLayout = rpLayoutIt->second;
                 beginTrackedDepthScope(pLogicalDevice,
                                        commandBuffer,
                                        selectDepthStateFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
-                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin));
+                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
+                                       rpDepthFinalLayout);
             }
         }
 
@@ -3422,10 +4584,15 @@ namespace vkShade
             if (devIt != deviceMap.end())
             {
                 pLogicalDevice = devIt->second.get();
+                VkImageLayout rpDepthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                auto rpLayoutIt = renderPassDepthFinalLayouts.find(pRenderPassBegin->renderPass);
+                if (rpLayoutIt != renderPassDepthFinalLayouts.end())
+                    rpDepthFinalLayout = rpLayoutIt->second;
                 beginTrackedDepthScope(pLogicalDevice,
                                        commandBuffer,
                                        selectDepthStateFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
-                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin));
+                                       selectDepthSnapshotTargetFromRenderPassBegin(pLogicalDevice, pRenderPassBegin),
+                                       rpDepthFinalLayout);
             }
         }
 
@@ -3437,10 +4604,15 @@ namespace vkShade
                                                 VkCommandBuffer commandBuffer,
                                                 const VkRenderingInfo* pRenderingInfo)
     {
+        VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        if (pRenderingInfo && pRenderingInfo->pDepthAttachment)
+            depthFinalLayout = pRenderingInfo->pDepthAttachment->imageLayout;
+
         beginTrackedDepthScope(pLogicalDevice,
                                commandBuffer,
                                selectDepthStateFromRenderingInfo(pLogicalDevice, pRenderingInfo),
-                               selectDepthSnapshotTargetFromRenderingInfo(pLogicalDevice, pRenderingInfo));
+                               selectDepthSnapshotTargetFromRenderingInfo(pLogicalDevice, pRenderingInfo),
+                               depthFinalLayout);
     }
 
     VKAPI_ATTR void VKAPI_CALL vkShade_CmdBeginRendering(VkCommandBuffer commandBuffer, const VkRenderingInfo* pRenderingInfo)
@@ -3571,29 +4743,47 @@ namespace vkShade
         }
 
         LogicalDevice* pLogicalDevice = nullptr;
-        DepthState promotedDepthState = {};
-        DepthSnapshotTarget snapshotTarget = {};
         {
             scoped_lock l(globalLock);
             auto devIt = deviceMap.find(GetKey(commandBuffer));
             if (devIt != deviceMap.end())
-            {
                 pLogicalDevice = devIt->second.get();
-                endTrackedDepthScope(pLogicalDevice,
-                                     commandBuffer,
-                                     "CmdEndRenderPass",
-                                     &promotedDepthState,
-                                     &snapshotTarget);
-            }
         }
 
         if (pLogicalDevice)
         {
             pLogicalDevice->vkd.CmdEndRenderPass(commandBuffer);
-            if (snapshotTarget.swapchain != VK_NULL_HANDLE && hasDepthState(promotedDepthState))
-                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, promotedDepthState, &snapshotTarget);
-            else if (hasDepthState(promotedDepthState) && sameDepthState(pLogicalDevice->activeDepthState, promotedDepthState))
-                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, promotedDepthState);
+
+            // v3: evaluate candidate and set pending copy. NO command recording.
+            const int method = settingsManager.getDepthCaptureMethod();
+            if (method == 1 || method == 2)
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass",
+                                     &promoted, &snapTarget, &depthFinalLayout);
+                DepthState currentActive = pLogicalDevice->activeDepthState;
+
+                if (hasDepthState(promoted) && (snapTarget.swapchain != VK_NULL_HANDLE || sameDepthState(currentActive, promoted)))
+                {
+                    VkImageLayout sourceLayout = (depthFinalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+                        ? depthFinalLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    pLogicalDevice->pendingDepthCopy.depthState = promoted;
+                    pLogicalDevice->pendingDepthCopy.sourceLayout = sourceLayout;
+                    pLogicalDevice->pendingDepthCopy.pending = true;
+                }
+            }
+            else
+            {
+                // Method 0: just end the scope normally (no capture)
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass", &promoted, &snapTarget);
+            }
         }
     }
 
@@ -3609,29 +4799,45 @@ namespace vkShade
         }
 
         LogicalDevice* pLogicalDevice = nullptr;
-        DepthState promotedDepthState = {};
-        DepthSnapshotTarget snapshotTarget = {};
         {
             scoped_lock l(globalLock);
             auto devIt = deviceMap.find(GetKey(commandBuffer));
             if (devIt != deviceMap.end())
-            {
                 pLogicalDevice = devIt->second.get();
-                endTrackedDepthScope(pLogicalDevice,
-                                     commandBuffer,
-                                     "CmdEndRenderPass2",
-                                     &promotedDepthState,
-                                     &snapshotTarget);
-            }
         }
 
         if (pLogicalDevice)
         {
             pLogicalDevice->vkd.CmdEndRenderPass2(commandBuffer, pSubpassEndInfo);
-            if (snapshotTarget.swapchain != VK_NULL_HANDLE && hasDepthState(promotedDepthState))
-                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, promotedDepthState, &snapshotTarget);
-            else if (hasDepthState(promotedDepthState) && sameDepthState(pLogicalDevice->activeDepthState, promotedDepthState))
-                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, promotedDepthState);
+
+            const int method = settingsManager.getDepthCaptureMethod();
+            if (method == 1 || method == 2)
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass2",
+                                     &promoted, &snapTarget, &depthFinalLayout);
+                DepthState currentActive = pLogicalDevice->activeDepthState;
+
+                if (hasDepthState(promoted) && (snapTarget.swapchain != VK_NULL_HANDLE || sameDepthState(currentActive, promoted)))
+                {
+                    VkImageLayout sourceLayout = (depthFinalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+                        ? depthFinalLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    pLogicalDevice->pendingDepthCopy.depthState = promoted;
+                    pLogicalDevice->pendingDepthCopy.sourceLayout = sourceLayout;
+                    pLogicalDevice->pendingDepthCopy.pending = true;
+                }
+            }
+            else
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass2", &promoted, &snapTarget);
+            }
         }
     }
 
@@ -3647,29 +4853,45 @@ namespace vkShade
         }
 
         LogicalDevice* pLogicalDevice = nullptr;
-        DepthState promotedDepthState = {};
-        DepthSnapshotTarget snapshotTarget = {};
         {
             scoped_lock l(globalLock);
             auto devIt = deviceMap.find(GetKey(commandBuffer));
             if (devIt != deviceMap.end())
-            {
                 pLogicalDevice = devIt->second.get();
-                endTrackedDepthScope(pLogicalDevice,
-                                     commandBuffer,
-                                     "CmdEndRenderPass2KHR",
-                                     &promotedDepthState,
-                                     &snapshotTarget);
-            }
         }
 
         if (pLogicalDevice)
         {
             pLogicalDevice->vkd.CmdEndRenderPass2KHR(commandBuffer, pSubpassEndInfo);
-            if (snapshotTarget.swapchain != VK_NULL_HANDLE && hasDepthState(promotedDepthState))
-                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, promotedDepthState, &snapshotTarget);
-            else if (hasDepthState(promotedDepthState) && sameDepthState(pLogicalDevice->activeDepthState, promotedDepthState))
-                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, promotedDepthState);
+
+            const int method = settingsManager.getDepthCaptureMethod();
+            if (method == 1 || method == 2)
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass2KHR",
+                                     &promoted, &snapTarget, &depthFinalLayout);
+                DepthState currentActive = pLogicalDevice->activeDepthState;
+
+                if (hasDepthState(promoted) && (snapTarget.swapchain != VK_NULL_HANDLE || sameDepthState(currentActive, promoted)))
+                {
+                    VkImageLayout sourceLayout = (depthFinalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+                        ? depthFinalLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    pLogicalDevice->pendingDepthCopy.depthState = promoted;
+                    pLogicalDevice->pendingDepthCopy.sourceLayout = sourceLayout;
+                    pLogicalDevice->pendingDepthCopy.pending = true;
+                }
+            }
+            else
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderPass2KHR", &promoted, &snapTarget);
+            }
         }
     }
 
@@ -3685,29 +4907,45 @@ namespace vkShade
         }
 
         LogicalDevice* pLogicalDevice = nullptr;
-        DepthState promotedDepthState = {};
-        DepthSnapshotTarget snapshotTarget = {};
         {
             scoped_lock l(globalLock);
             auto devIt = deviceMap.find(GetKey(commandBuffer));
             if (devIt != deviceMap.end())
-            {
                 pLogicalDevice = devIt->second.get();
-                endTrackedDepthScope(pLogicalDevice,
-                                     commandBuffer,
-                                     "CmdEndRendering",
-                                     &promotedDepthState,
-                                     &snapshotTarget);
-            }
         }
 
         if (pLogicalDevice)
         {
             pLogicalDevice->vkd.CmdEndRendering(commandBuffer);
-            if (snapshotTarget.swapchain != VK_NULL_HANDLE && hasDepthState(promotedDepthState))
-                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, promotedDepthState, &snapshotTarget);
-            else if (hasDepthState(promotedDepthState) && sameDepthState(pLogicalDevice->activeDepthState, promotedDepthState))
-                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, promotedDepthState);
+
+            const int method = settingsManager.getDepthCaptureMethod();
+            if (method == 1 || method == 2)
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRendering",
+                                     &promoted, &snapTarget, &depthFinalLayout);
+                DepthState currentActive = pLogicalDevice->activeDepthState;
+
+                if (hasDepthState(promoted) && (snapTarget.swapchain != VK_NULL_HANDLE || sameDepthState(currentActive, promoted)))
+                {
+                    VkImageLayout sourceLayout = (depthFinalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+                        ? depthFinalLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    pLogicalDevice->pendingDepthCopy.depthState = promoted;
+                    pLogicalDevice->pendingDepthCopy.sourceLayout = sourceLayout;
+                    pLogicalDevice->pendingDepthCopy.pending = true;
+                }
+            }
+            else
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRendering", &promoted, &snapTarget);
+            }
         }
     }
 
@@ -3723,29 +4961,45 @@ namespace vkShade
         }
 
         LogicalDevice* pLogicalDevice = nullptr;
-        DepthState promotedDepthState = {};
-        DepthSnapshotTarget snapshotTarget = {};
         {
             scoped_lock l(globalLock);
             auto devIt = deviceMap.find(GetKey(commandBuffer));
             if (devIt != deviceMap.end())
-            {
                 pLogicalDevice = devIt->second.get();
-                endTrackedDepthScope(pLogicalDevice,
-                                     commandBuffer,
-                                     "CmdEndRenderingKHR",
-                                     &promotedDepthState,
-                                     &snapshotTarget);
-            }
         }
 
         if (pLogicalDevice)
         {
             pLogicalDevice->vkd.CmdEndRenderingKHR(commandBuffer);
-            if (snapshotTarget.swapchain != VK_NULL_HANDLE && hasDepthState(promotedDepthState))
-                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, promotedDepthState, &snapshotTarget);
-            else if (hasDepthState(promotedDepthState) && sameDepthState(pLogicalDevice->activeDepthState, promotedDepthState))
-                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, promotedDepthState);
+
+            const int method = settingsManager.getDepthCaptureMethod();
+            if (method == 1 || method == 2)
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderingKHR",
+                                     &promoted, &snapTarget, &depthFinalLayout);
+                DepthState currentActive = pLogicalDevice->activeDepthState;
+
+                if (hasDepthState(promoted) && (snapTarget.swapchain != VK_NULL_HANDLE || sameDepthState(currentActive, promoted)))
+                {
+                    VkImageLayout sourceLayout = (depthFinalLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+                        ? depthFinalLayout : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    pLogicalDevice->pendingDepthCopy.depthState = promoted;
+                    pLogicalDevice->pendingDepthCopy.sourceLayout = sourceLayout;
+                    pLogicalDevice->pendingDepthCopy.pending = true;
+                }
+            }
+            else
+            {
+                scoped_lock l(globalLock);
+                DepthState promoted = {};
+                DepthSnapshotTarget snapTarget = {};
+                endTrackedDepthScope(pLogicalDevice, commandBuffer, "CmdEndRenderingKHR", &promoted, &snapTarget);
+            }
         }
     }
 
@@ -3842,6 +5096,122 @@ namespace vkShade
             scoped_lock l(globalLock);
             tryActivatePendingTransferLinkedDepthScope(pLogicalDevice, commandBuffer, dstImage, "CmdBlitImage");
         }
+    }
+
+    // ReShade-style depth preservation: when the app clears the depth attachment
+    // mid-render-pass (vkCmdClearAttachments), record a depth snapshot BEFORE
+    // the clear is issued. This captures the pre-clear depth so effects can use
+    // it even if the app clears depth at the end of the frame (which Roblox and
+    // many deferred renderers do). Without this, the end-of-render-pass snapshot
+    // would capture the cleared (empty) depth.
+    VKAPI_ATTR void VKAPI_CALL vkShade_CmdClearAttachments(VkCommandBuffer commandBuffer,
+                                                           uint32_t attachmentCount,
+                                                           const VkClearAttachment* pAttachments,
+                                                           uint32_t rectCount,
+                                                           const VkClearRect* pRects)
+    {
+        if (!vkShade::settingsManager.getDepthCapture())
+        {
+            scoped_lock l(globalLock);
+            auto devIt = deviceMap.find(GetKey(commandBuffer));
+            if (devIt != deviceMap.end())
+                devIt->second->vkd.CmdClearAttachments(commandBuffer, attachmentCount, pAttachments, rectCount, pRects);
+            return;
+        }
+
+        LogicalDevice* pLogicalDevice = nullptr;
+        DepthState depthToPreserve = {};
+        DepthSnapshotTarget snapshotTarget = {};
+        bool hasDepthClear = false;
+        {
+            scoped_lock l(globalLock);
+            auto devIt = deviceMap.find(GetKey(commandBuffer));
+            if (devIt != deviceMap.end())
+            {
+                pLogicalDevice = devIt->second.get();
+
+                // Check if this clear includes the depth attachment we're tracking.
+                auto scopeIt = pLogicalDevice->commandBufferDepthStates.find(commandBuffer);
+                if (scopeIt != pLogicalDevice->commandBufferDepthStates.end()
+                    && scopeIt->second.inRenderScope
+                    && hasDepthState(scopeIt->second.depthState))
+                {
+                    for (uint32_t i = 0; i < attachmentCount; i++)
+                    {
+                        if (pAttachments[i].aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+                        {
+                            depthToPreserve = scopeIt->second.depthState;
+                            snapshotTarget = scopeIt->second.snapshotTarget;
+                            hasDepthClear = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Record a snapshot BEFORE the clear captures the pre-clear depth.
+        // This is the key ReShade technique for preserving depth in deferred
+        // renderers that clear depth between passes.
+        if (pLogicalDevice && hasDepthClear && hasDepthState(depthToPreserve))
+        {
+            if (hasPresentableSnapshotTarget(snapshotTarget))
+                recordDepthResolveSnapshotForCommandBuffer(pLogicalDevice, commandBuffer, depthToPreserve, &snapshotTarget);
+            else
+                recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, depthToPreserve);
+        }
+
+        if (pLogicalDevice)
+            pLogicalDevice->vkd.CmdClearAttachments(commandBuffer, attachmentCount, pAttachments, rectCount, pRects);
+    }
+
+    // ReShade-style depth preservation for out-of-render-pass depth clears.
+    // If the app calls vkCmdClearDepthStencilImage on a tracked depth image,
+    // record a snapshot BEFORE the clear.
+    VKAPI_ATTR void VKAPI_CALL vkShade_CmdClearDepthStencilImage(VkCommandBuffer commandBuffer,
+                                                                 VkImage image,
+                                                                 VkImageLayout imageLayout,
+                                                                 const VkClearDepthStencilValue* pDepthStencil,
+                                                                 uint32_t rangeCount,
+                                                                 const VkImageSubresourceRange* pRanges)
+    {
+        if (!vkShade::settingsManager.getDepthCapture())
+        {
+            scoped_lock l(globalLock);
+            auto devIt = deviceMap.find(GetKey(commandBuffer));
+            if (devIt != deviceMap.end())
+                devIt->second->vkd.CmdClearDepthStencilImage(commandBuffer, image, imageLayout, pDepthStencil, rangeCount, pRanges);
+            return;
+        }
+
+        LogicalDevice* pLogicalDevice = nullptr;
+        DepthState depthToPreserve = {};
+        bool shouldPreserve = false;
+        {
+            scoped_lock l(globalLock);
+            auto devIt = deviceMap.find(GetKey(commandBuffer));
+            if (devIt != deviceMap.end())
+            {
+                pLogicalDevice = devIt->second.get();
+
+                // If this image is the currently-active depth source, preserve it.
+                if (pLogicalDevice->activeDepthState.image == image && hasDepthState(pLogicalDevice->activeDepthState))
+                {
+                    depthToPreserve = pLogicalDevice->activeDepthState;
+                    shouldPreserve = true;
+                }
+            }
+        }
+
+        if (pLogicalDevice && shouldPreserve)
+        {
+            Logger::debug("CmdClearDepthStencilImage: preserving depth before clear of active depth image="
+                          + convertToString(image));
+            recordDepthResolveSnapshotForAllSwapchains(pLogicalDevice, commandBuffer, depthToPreserve);
+        }
+
+        if (pLogicalDevice)
+            pLogicalDevice->vkd.CmdClearDepthStencilImage(commandBuffer, image, imageLayout, pDepthStencil, rangeCount, pRanges);
     }
 
     VKAPI_ATTR void VKAPI_CALL vkShade_CmdDraw(VkCommandBuffer commandBuffer,
@@ -4099,8 +5469,25 @@ namespace vkShade
         scoped_lock l(globalLock);
 
         auto devIt = deviceMap.find(GetKey(commandBuffer));
-        if (devIt == deviceMap.end())
-            return VK_ERROR_DEVICE_LOST;
+        if (devIt == deviceMap.end() || !devIt->second)
+        {
+            // Not our device — pass through.  Returning an error here would break
+            // applications that use multiple VkDevices (only one goes through us).
+            // Fall through to the loader's dispatch table.
+            // Since we don't have the real dispatch table, the loader will retry.
+            // The safest correct action is to return NOT_READY so the loader
+            // falls back to the next layer.  However, since we intercepted this
+            // call, the dispatch table is already set by the loader to point to
+            // our function — so we cannot pass through here.  Return success
+            // and let the actual BeginCommandBuffer happen through the normal
+            // dispatch path (the command buffer's first pointer routes to the
+            // real driver's implementation, not back to us).
+            //
+            // In practice, this code path is extremely rare because
+            // vkShade_GetDeviceProcAddr only returns our interceptors for
+            // devices we created (via the deviceMap lookup at line 4744-4748).
+            return VK_SUCCESS;
+        }
 
         LogicalDevice* pLogicalDevice = devIt->second.get();
         pLogicalDevice->commandBufferRecordedDrawCounts[commandBuffer] = 0;
@@ -4118,8 +5505,8 @@ namespace vkShade
         scoped_lock l(globalLock);
 
         auto devIt = deviceMap.find(GetKey(device));
-        if (devIt == deviceMap.end())
-            return;
+        if (devIt == deviceMap.end() || !devIt->second)
+            return;  // Not our device — nothing to clean up
 
         LogicalDevice* pLogicalDevice = devIt->second.get();
         if (pCommandBuffers)
@@ -4181,11 +5568,31 @@ namespace vkShade
             clearTrackedDepthScopesLocked(pLogicalDevice, [image](const DepthState& state) { return state.image == image; });
 
             if (pLogicalDevice->activeDepthState.image == image)
+            {
                 pLogicalDevice->activeDepthState = {};
-
-            // Update all swapchains with new depth state
-            DepthState depth = getDepthState(pLogicalDevice);
-            updateDeviceDepthStateLocked(pLogicalDevice, depth, "DestroyImage");
+                // Also clear the pin if it references a view of this image
+                if (pLogicalDevice->pinnedDepthImageView != VK_NULL_HANDLE)
+                {
+                    auto pinIt = pLogicalDevice->depthViewStates.find(pLogicalDevice->pinnedDepthImageView);
+                    if (pinIt == pLogicalDevice->depthViewStates.end() || pinIt->second.image == image)
+                        pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
+                }
+                DepthState depth = getDepthState(pLogicalDevice);
+                updateDeviceDepthStateLocked(pLogicalDevice, depth, "DestroyImage");
+            }
+            else
+            {
+                // Image wasn't active, but clear pin if it referenced this image
+                if (pLogicalDevice->pinnedDepthImageView != VK_NULL_HANDLE)
+                {
+                    auto pinIt = pLogicalDevice->depthViewStates.find(pLogicalDevice->pinnedDepthImageView);
+                    if (pinIt != pLogicalDevice->depthViewStates.end() && pinIt->second.image == image)
+                    {
+                        Logger::debug("DestroyImage: clearing stale pinned depth view (image destroyed)");
+                        pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
+                    }
+                }
+            }
         }
 
         pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, image, pAllocator);
@@ -4325,7 +5732,10 @@ namespace vkShade
             }
 
             scoped_lock l(globalLock);
-            return instanceDispatchMap[GetKey(physicalDevice)].EnumerateDeviceExtensionProperties(
+            auto it = instanceDispatchMap.find(GetKey(physicalDevice));
+            if (it == instanceDispatchMap.end() || !it->second.EnumerateDeviceExtensionProperties)
+                return VK_ERROR_INITIALIZATION_FAILED;
+            return it->second.EnumerateDeviceExtensionProperties(
                 physicalDevice, pLayerName, pPropertyCount, pProperties);
         }
 
@@ -4385,6 +5795,7 @@ extern "C"
     GETPROCADDR(CreateSwapchainKHR); \
     GETPROCADDR(GetSwapchainImagesKHR); \
     GETPROCADDR(QueuePresentKHR); \
+    GETPROCADDR(QueueSubmit); \
     GETPROCADDR(DestroySwapchainKHR); \
 \
     GETPROCADDR(CreateImage); \
@@ -4395,6 +5806,7 @@ extern "C"
     GETPROCADDR(CreateRenderPass); \
     GETPROCADDR(CreateRenderPass2); \
     GETPROCADDR(CreateRenderPass2KHR); \
+    GETPROCADDR(DestroyRenderPass); \
     GETPROCADDR(CreateFramebuffer); \
     GETPROCADDR(DestroyFramebuffer); \
     GETPROCADDR(BeginCommandBuffer); \
@@ -4410,6 +5822,8 @@ extern "C"
     GETPROCADDR(CmdEndRendering); \
     GETPROCADDR(CmdEndRenderingKHR); \
     GETPROCADDR(CmdBlitImage); \
+    GETPROCADDR(CmdClearAttachments); \
+    GETPROCADDR(CmdClearDepthStencilImage); \
     GETPROCADDR(CmdCopyImage); \
     GETPROCADDR(CmdExecuteCommands); \
     GETPROCADDR(CmdDraw); \

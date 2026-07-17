@@ -16,6 +16,13 @@
     if (val != VK_SUCCESS) \
     { \
         Logger::err("ASSERT_VULKAN failed in " + std::string(__FILE__) + " : " + std::to_string(__LINE__) + "; " + std::to_string(val)); \
+        return; \
+    }
+#define ASSERT_VULKAN_VAL(val, ret) \
+    if (val != VK_SUCCESS) \
+    { \
+        Logger::err("ASSERT_VULKAN failed in " + std::string(__FILE__) + " : " + std::to_string(__LINE__) + "; " + std::to_string(val)); \
+        return ret; \
     }
 #endif
 namespace vkShade

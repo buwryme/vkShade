@@ -12,6 +12,7 @@ imgui_src = [
 overlay_src = [
     'overlay/imgui_overlay.cpp',
     'overlay/view_add_effects.cpp',
+    'overlay/view_advanced.cpp',
     'overlay/view_configs.cpp',
     'overlay/view_debug.cpp',
     'overlay/view_diagnostics.cpp',

@@ -32,7 +32,7 @@ namespace vkShade
             framebufferCreateInfo.layers          = 1;
 
             VkResult result = pLogicalDevice->vkd.CreateFramebuffer(pLogicalDevice->device, &framebufferCreateInfo, nullptr, &(framebuffers[i]));
-            ASSERT_VULKAN(result);
+            ASSERT_VULKAN_VAL(result, {});
             perFrameImageViews.clear();
         }
         return framebuffers;

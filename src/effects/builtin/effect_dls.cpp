@@ -39,7 +39,7 @@ namespace vkShade
         mapEntries[1].size       = sizeof(float);
 
         VkSpecializationInfo fragmentSpecializationInfo;
-        fragmentSpecializationInfo.mapEntryCount = 1;
+        fragmentSpecializationInfo.mapEntryCount = 2;
         fragmentSpecializationInfo.pMapEntries   = mapEntries;
         fragmentSpecializationInfo.dataSize      = sizeof(float) * 2;
         fragmentSpecializationInfo.pData         = specData;

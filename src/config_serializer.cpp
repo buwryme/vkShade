@@ -260,6 +260,35 @@ namespace vkShade
             }
             else if (key == "showDebugWindow")
                 settings.showDebugWindow = (value == "true" || value == "1");
+            else if (key == "depthResolveMode")
+            {
+                try { settings.depthResolveMode = std::stoi(value); }
+                catch (...) { Logger::err("invalid depthResolveMode value: " + value); }
+            }
+            else if (key == "depthManualPin")
+                settings.depthManualPin = value;
+            else if (key == "depthTransientWorkaround")
+                settings.depthTransientWorkaround = (value == "true" || value == "1");
+            else if (key == "depthCaptureMethod")
+            {
+                try
+                {
+                    int parsed = std::stoi(value);
+                    settings.depthCaptureMethod = std::clamp(parsed, 0, 2);
+                }
+                catch (...) { Logger::err("invalid depthCaptureMethod value: " + value); }
+            }
+            else if (key == "depthSourceChannel")
+            {
+                try
+                {
+                    int parsed = std::stoi(value);
+                    settings.depthSourceChannel = std::clamp(parsed, 0, 6); // Support modes 0-6
+                }
+                catch (...) { Logger::err("invalid depthSourceChannel value: " + value); }
+            }
+            else if (key == "depthInvert")
+                settings.depthInvert = (value == "true" || value == "1");
         }
 
         return settings;
@@ -306,6 +335,27 @@ namespace vkShade
 
         file << "\n# Debug\n";
         file << "showDebugWindow = " << (settings.showDebugWindow ? "true" : "false") << "\n";
+
+        file << "\n# Advanced (depth buffer)\n";
+        file << "# depthResolveMode: 0=auto (prefer average), 1=sample-zero, 2=average\n";
+        file << "depthResolveMode = " << settings.depthResolveMode << "\n";
+        file << "depthManualPin = " << settings.depthManualPin << "\n";
+        file << "depthTransientWorkaround = " << (settings.depthTransientWorkaround ? "true" : "false") << "\n";
+        file << "# depthCaptureMethod: 0=off, 1=renderpass-end (recommended), 2=queue-submit (robust fallback)\n";
+        file << "depthCaptureMethod = " << settings.depthCaptureMethod << "\n";
+
+        file << "\n# Alternative depth buffer handling\n";
+        file << "# depthSourceChannel mode selection:\n";
+        file << "#   0 = Luminance/Red (standard Vulkan depth)\n";
+        file << "#   1 = Alpha (alpha-encoded depth)\n";
+        file << "#   2 = Packed RGB (depth in RGB channels)\n";
+        file << "#   3 = Logarithmic (log-encoded depth)\n";
+        file << "#   4 = View-space Z (raw view-space Z)\n";
+        file << "#   5 = NDC (Normalized Device Coordinates)\n";
+        file << "#   6 = Reversed-Z (inverted for precision)\n";
+        file << "depthSourceChannel = " << settings.depthSourceChannel << "\n";
+        file << "# depthInvert: invert depth values (flips near/far planes)\n";
+        file << "depthInvert = " << (settings.depthInvert ? "true" : "false") << "\n";
 
         file.close();
         Logger::info("Saved settings to: " + configPath);

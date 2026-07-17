@@ -39,6 +39,12 @@ namespace vkShade
         int getAutoApplyDelay() const { return settings.autoApplyDelay; }
         bool getShowDebugWindow() const { return settings.showDebugWindow; }
         bool getSafeAntiCheat() const { return safeAntiCheat; }
+        int getDepthResolveMode() const { return settings.depthResolveMode; }
+        const std::string& getDepthManualPin() const { return settings.depthManualPin; }
+        bool getDepthTransientWorkaround() const { return settings.depthTransientWorkaround; }
+        int getDepthCaptureMethod() const { return std::clamp(settings.depthCaptureMethod, 0, 2); }
+        int getDepthSourceChannel() const { return std::clamp(settings.depthSourceChannel, 0, 6); }
+        bool getDepthInvert() const { return settings.depthInvert; }
 
         // Setters (update in-memory state, call save() to persist)
         void setMaxEffects(int value) { settings.maxEffects = std::clamp(value, 1, 200); }
@@ -52,6 +58,12 @@ namespace vkShade
         void setAutoApplyDelay(int value) { settings.autoApplyDelay = value; }
         void setShowDebugWindow(bool value) { settings.showDebugWindow = value; }
         void setSafeAntiCheat(bool value) { safeAntiCheat = value; }
+        void setDepthResolveMode(int value) { settings.depthResolveMode = value; }
+        void setDepthManualPin(const std::string& value) { settings.depthManualPin = value; }
+        void setDepthTransientWorkaround(bool value) { settings.depthTransientWorkaround = value; }
+        void setDepthCaptureMethod(int value) { settings.depthCaptureMethod = std::clamp(value, 0, 2); }
+        void setDepthSourceChannel(int value) { settings.depthSourceChannel = std::clamp(value, 0, 6); }
+        void setDepthInvert(bool value) { settings.depthInvert = value; }
 
         // Get raw settings struct (for bulk operations)
         const VkBasaltSettings& getSettings() const { return settings; }

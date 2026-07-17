@@ -55,7 +55,7 @@ namespace vkShade
         for (uint32_t i = 0; i < count; i++)
         {
             result = pLogicalDevice->vkd.CreateImage(pLogicalDevice->device, &imageCreateInfo, nullptr, &(images[i]));
-            ASSERT_VULKAN(result);
+            ASSERT_VULKAN_VAL(result, {});
         }
         // Allocate a bunch of memory for all images at one
         VkMemoryRequirements memoryRequirements;
@@ -73,12 +73,12 @@ namespace vkShade
         memoryAllocateInfo.memoryTypeIndex = findMemoryTypeIndex(pLogicalDevice, memoryRequirements.memoryTypeBits, properties);
 
         result = pLogicalDevice->vkd.AllocateMemory(pLogicalDevice->device, &memoryAllocateInfo, nullptr, &imageMemory);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, {});
 
         for (uint32_t i = 0; i < count; i++)
         {
             result = pLogicalDevice->vkd.BindImageMemory(pLogicalDevice->device, images[i], imageMemory, memoryRequirements.size * i);
-            ASSERT_VULKAN(result);
+            ASSERT_VULKAN_VAL(result, {});
         }
         return images;
     }

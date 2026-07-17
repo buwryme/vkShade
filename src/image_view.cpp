@@ -34,7 +34,7 @@ namespace vkShade
         {
             imageViewCreateInfo.image = images[i];
             VkResult result           = pLogicalDevice->vkd.CreateImageView(pLogicalDevice->device, &imageViewCreateInfo, nullptr, &(imageViews[i]));
-            ASSERT_VULKAN(result);
+            ASSERT_VULKAN_VAL(result, {})
         }
 
         return imageViews;

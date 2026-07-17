@@ -27,7 +27,7 @@ namespace vkShade
         samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 
         VkResult result = pLogicalDevice->vkd.CreateSampler(pLogicalDevice->device, &samplerCreateInfo, nullptr, &sampler);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
         return sampler;
     }
 
@@ -61,7 +61,7 @@ namespace vkShade
         samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 
         VkResult result = pLogicalDevice->vkd.CreateSampler(pLogicalDevice->device, &samplerCreateInfo, nullptr, &sampler);
-        ASSERT_VULKAN(result);
+        ASSERT_VULKAN_VAL(result, VK_NULL_HANDLE);
         return sampler;
     }
 

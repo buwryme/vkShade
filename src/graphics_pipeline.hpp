@@ -13,7 +13,9 @@
 
 namespace vkShade
 {
-    VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, std::vector<VkDescriptorSetLayout> descriptorSetLayouts);
+    VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, 
+                                                   std::vector<VkDescriptorSetLayout> descriptorSetLayouts,
+                                                   std::vector<VkPushConstantRange> pushConstantRanges = {});
 
     VkPipeline createGraphicsPipeline(LogicalDevice*        pLogicalDevice,
                                       VkShaderModule        vertexModule,

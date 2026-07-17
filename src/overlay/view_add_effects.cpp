@@ -12,7 +12,6 @@
 
 namespace vkShade
 {
-    // Case-insensitive substring match
     static bool matchesSearch(const std::string& text, const char* search)
     {
         if (!search || !search[0])
@@ -29,38 +28,36 @@ namespace vkShade
         if (!pEffectRegistry)
             return;
 
-        // Auto-start shader test when safe anti-cheat is on — pre-compiles all
-        // shaders so depth detection is instant instead of lagging per-effect
         if (profileSafeAntiCheat && !shaderTestComplete && !shaderTestRunning)
             startShaderTest();
 
-        // Get a mutable copy of selected effects
         std::vector<std::string> selectedEffects = pEffectRegistry->getSelectedEffects();
 
         // Handle ESC to clear search
         if (ImGui::IsKeyPressed(ImGuiKey_Escape) && addEffectsSearch[0] != '\0')
-        {
             addEffectsSearch[0] = '\0';
-        }
 
         // Capture keyboard input for seamless search (only when no widget is active)
         if (!ImGui::IsAnyItemActive())
         {
             ImGuiIO& io = ImGui::GetIO();
-            for (int i = 0; i < io.InputQueueCharacters.Size; i++)
+            if (io.InputQueueCharacters.Size > 0)
             {
-                ImWchar c = io.InputQueueCharacters[i];
-                if (c >= 32 && c < 127)  // Printable ASCII
+                for (int i = 0; i < io.InputQueueCharacters.Size; i++)
                 {
-                    size_t len = strlen(addEffectsSearch);
-                    if (len < sizeof(addEffectsSearch) - 1)
+                    ImWchar c = io.InputQueueCharacters[i];
+                    if (c >= 32 && c < 127)
                     {
-                        addEffectsSearch[len] = static_cast<char>(c);
-                        addEffectsSearch[len + 1] = '\0';
+                        size_t len = strlen(addEffectsSearch);
+                        if (len < sizeof(addEffectsSearch) - 1)
+                        {
+                            addEffectsSearch[len] = static_cast<char>(c);
+                            addEffectsSearch[len + 1] = '\0';
+                        }
                     }
                 }
+                io.InputQueueCharacters.clear();
             }
-            // Handle backspace
             if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && addEffectsSearch[0] != '\0')
             {
                 size_t len = strlen(addEffectsSearch);
@@ -69,13 +66,13 @@ namespace vkShade
             }
         }
 
-        // Add Effects mode - two column layout
+        // Add Effects mode
         size_t maxEffectsLimit = static_cast<size_t>(settingsManager.getMaxEffects());
         if (insertPosition >= 0)
             ImGui::Text("Insert Effects at position %d (max %zu)", insertPosition, maxEffectsLimit);
         else
             ImGui::Text("Add Effects (max %zu)", maxEffectsLimit);
-        // Show shader pre-compilation progress when safe anti-cheat auto-triggered it
+
         if (shaderTestRunning && profileSafeAntiCheat)
         {
             float progress = shaderTestQueue.empty() ? 1.0f :
@@ -90,10 +87,8 @@ namespace vkShade
         size_t pendingCount = pendingAddEffects.size();
         size_t totalCount = currentCount + pendingCount;
 
-        // Built-in effects
         std::vector<std::string> builtinEffects = {"cas", "dls", "fxaa", "smaa", "deband", "lut"};
 
-        // Helper to check if instance name is used
         auto isNameUsed = [&](const std::string& name) {
             if (std::find(selectedEffects.begin(), selectedEffects.end(), name) != selectedEffects.end())
                 return true;
@@ -103,7 +98,6 @@ namespace vkShade
             return false;
         };
 
-        // Helper to get next instance name for an effect type
         auto getNextInstanceName = [&](const std::string& effectType) -> std::string {
             if (!isNameUsed(effectType))
                 return effectType;
@@ -116,30 +110,28 @@ namespace vkShade
             return effectType + ".99";
         };
 
-        // Check if an effect uses depth — only relevant when safe anti-cheat is on
+        // Pre-filter all effects to know if there are any matches before calling
+        // isDepthEffect (which can trigger synchronous shader compilation).
+        auto shouldShow = [&](const std::string& effectType) -> bool {
+            return matchesSearch(effectType, addEffectsSearch);
+        };
+
+        // Check if an effect uses depth — only relevant when safe anti-cheat is on.
+        // NOT called when the search is active but has zero matches (avoids
+        // redundant shader compilation on an empty list).
         auto isDepthEffect = [&](const std::string& effectType) -> bool {
-            // No need to check if safe anti-cheat is off
             if (!profileSafeAntiCheat)
                 return false;
-
-            // Built-in effects never use depth
             static const std::set<std::string> safeBuiltins = {"cas", "dls", "fxaa", "smaa", "deband", "lut"};
             if (safeBuiltins.count(effectType))
                 return false;
-
-            // Check cached results from shader test or previous lazy checks
             if (depthShaders.count(effectType))
                 return true;
-
-            // If already checked or shader test completed, it's safe
             if (checkedShaders.count(effectType) || shaderTestComplete)
                 return false;
-
-            // Lazy check: compile shader once to determine depth usage (cached in checkedShaders)
             auto it = state.effectPaths.find(effectType);
             if (it == state.effectPaths.end())
                 return false;
-
             checkedShaders.insert(effectType);
             ShaderManagerConfig smConfig = ConfigSerializer::loadShaderManagerConfig();
             if (checkShaderUsesDepth(effectType, it->second, smConfig.discoveredShaderPaths))
@@ -150,7 +142,6 @@ namespace vkShade
             return false;
         };
 
-        // Helper to render add button for an effect
         auto renderAddButton = [&](const std::string& effectType, const std::string& tooltip = "") {
             bool atLimit = totalCount >= maxEffectsLimit;
             bool depthBlocked = profileSafeAntiCheat && isDepthEffect(effectType);
@@ -164,7 +155,6 @@ namespace vkShade
                 pendingAddEffects.push_back({instanceName, effectType});
             }
 
-            // Show tooltip with shader path on hover
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
                 if (depthBlocked)
@@ -181,28 +171,24 @@ namespace vkShade
         float footerHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
         float contentHeight = -footerHeight;
         float columnWidth = ImGui::GetContentRegionAvail().x * 0.5f - ImGui::GetStyle().ItemSpacing.x * 0.5f;
+        if (columnWidth < 100.0f)
+            columnWidth = 100.0f;
 
         // Left column: Available effects
         ImGui::BeginChild("EffectList", ImVec2(columnWidth, contentHeight), true);
 
         bool hasSearch = addEffectsSearch[0] != '\0';
 
-        // Show search bar only when searching
-        if (hasSearch)
-        {
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
-            ImGui::SetNextItemWidth(-1);
-            ImGui::InputText("##search", addEffectsSearch, sizeof(addEffectsSearch), ImGuiInputTextFlags_AutoSelectAll);
-            ImGui::PopStyleColor();
-            ImGui::TextDisabled("ESC to clear");
-            ImGui::Separator();
-        }
+        // Always show the search bar (not just when searching)
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##search", addEffectsSearch, sizeof(addEffectsSearch), ImGuiInputTextFlags_AutoSelectAll);
+        ImGui::PopStyleColor();
+        if (!hasSearch)
+            ImGui::TextDisabled("Type to filter...");
         else
-        {
-            ImGui::Text("Available:");
-            ImGui::TextDisabled("(type to search)");
-            ImGui::Separator();
-        }
+            ImGui::TextDisabled("ESC to clear");
+        ImGui::Separator();
 
         // Sort effects for each category
         std::vector<std::string> sortedCurrentConfig = state.currentConfigEffects;
@@ -210,81 +196,71 @@ namespace vkShade
         std::sort(sortedCurrentConfig.begin(), sortedCurrentConfig.end());
         std::sort(sortedDefaultConfig.begin(), sortedDefaultConfig.end());
 
+        // Count total visible effects for the "no results" message
+        size_t totalVisible = 0;
+
         // Built-in effects (filtered)
-        bool hasBuiltinMatches = false;
         for (const auto& effectType : builtinEffects)
         {
-            if (matchesSearch(effectType, addEffectsSearch))
-            {
-                hasBuiltinMatches = true;
-                break;
-            }
-        }
-        if (hasBuiltinMatches)
-        {
+            if (!shouldShow(effectType))
+                continue;
             if (!hasSearch)
                 ImGui::Text("Built-in:");
-            for (const auto& effectType : builtinEffects)
+            for (const auto& et : builtinEffects)
             {
-                if (matchesSearch(effectType, addEffectsSearch))
-                    renderAddButton(effectType);
+                if (shouldShow(et))
+                {
+                    renderAddButton(et);
+                    totalVisible++;
+                }
             }
+            break;
         }
 
         // ReShade effects from current config (filtered)
-        bool hasCurrentMatches = false;
         for (const auto& effectType : sortedCurrentConfig)
         {
-            if (matchesSearch(effectType, addEffectsSearch))
-            {
-                hasCurrentMatches = true;
-                break;
-            }
-        }
-        if (hasCurrentMatches)
-        {
-            if (hasBuiltinMatches || !hasSearch)
-                ImGui::Separator();
+            if (!shouldShow(effectType))
+                continue;
+            ImGui::Separator();
             if (!hasSearch)
                 ImGui::Text("ReShade (%s):", state.configName.c_str());
-            for (const auto& effectType : sortedCurrentConfig)
+            for (const auto& et : sortedCurrentConfig)
             {
-                if (!matchesSearch(effectType, addEffectsSearch))
+                if (!shouldShow(et))
                     continue;
-                auto it = state.effectPaths.find(effectType);
+                auto it = state.effectPaths.find(et);
                 std::string path = (it != state.effectPaths.end()) ? it->second : "";
-                renderAddButton(effectType, path);
+                renderAddButton(et, path);
+                totalVisible++;
             }
+            break;
         }
 
         // ReShade effects from default config (filtered)
-        bool hasDefaultMatches = false;
         for (const auto& effectType : sortedDefaultConfig)
         {
-            if (matchesSearch(effectType, addEffectsSearch))
-            {
-                hasDefaultMatches = true;
-                break;
-            }
-        }
-        if (hasDefaultMatches)
-        {
-            if (hasCurrentMatches || hasBuiltinMatches || !hasSearch)
-                ImGui::Separator();
+            if (!shouldShow(effectType))
+                continue;
+            ImGui::Separator();
             if (!hasSearch)
                 ImGui::Text("ReShade (all):");
-            for (const auto& effectType : sortedDefaultConfig)
+            for (const auto& et : sortedDefaultConfig)
             {
-                if (!matchesSearch(effectType, addEffectsSearch))
+                if (!shouldShow(et))
                     continue;
-                auto it = state.effectPaths.find(effectType);
+                // Skip if already shown in current config
+                if (std::find(sortedCurrentConfig.begin(), sortedCurrentConfig.end(), et) != sortedCurrentConfig.end())
+                    continue;
+                auto it = state.effectPaths.find(et);
                 std::string path = (it != state.effectPaths.end()) ? it->second : "";
-                renderAddButton(effectType, path);
+                renderAddButton(et, path);
+                totalVisible++;
             }
+            break;
         }
 
-        // Show "no results" if searching and nothing matches
-        if (hasSearch && !hasBuiltinMatches && !hasCurrentMatches && !hasDefaultMatches)
+        if (totalVisible == 0)
             ImGui::TextDisabled("No effects match '%s'", addEffectsSearch);
 
         ImGui::EndChild();
@@ -306,7 +282,6 @@ namespace vkShade
                 continue;
             }
             ImGui::SameLine();
-            // Show instanceName (effectType) if they differ
             const auto& [instanceName, effectType] = pendingAddEffects[i];
             if (instanceName != effectType)
                 ImGui::Text("%s (%s)", instanceName.c_str(), effectType.c_str());
@@ -324,13 +299,12 @@ namespace vkShade
 
         if (ImGui::Button("Done"))
         {
-            // Apply pending effects - insert at position or append
             int pos = (insertPosition >= 0 && insertPosition <= static_cast<int>(selectedEffects.size()))
                       ? insertPosition : static_cast<int>(selectedEffects.size());
             for (const auto& [instanceName, effectType] : pendingAddEffects)
             {
                 selectedEffects.insert(selectedEffects.begin() + pos, instanceName);
-                pos++;  // Insert subsequent effects after the previous one
+                pos++;
                 pEffectRegistry->ensureEffect(instanceName, effectType);
                 pEffectRegistry->setEffectEnabled(instanceName, true);
             }

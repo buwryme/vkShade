@@ -247,7 +247,7 @@ namespace vkShade
                         continue;
 
                     ImGui::PushStyleColor(ImGuiCol_Text, levelColors[levelIdx]);
-                    ImGui::TextUnformatted(("[" + std::string(Logger::levelName(entry.level)) + "] " + entry.message).c_str());
+                    ImGui::Text("[%s] %s", Logger::levelName(entry.level), entry.message.c_str());
                     ImGui::PopStyleColor();
                 }
 

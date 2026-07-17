@@ -7,13 +7,15 @@
     FORVKFUNC(GetPhysicalDeviceFormatProperties) \
     FORVKFUNC(GetPhysicalDeviceMemoryProperties) \
     FORVKFUNC(GetPhysicalDeviceQueueFamilyProperties) \
-    FORVKFUNC(GetPhysicalDeviceProperties)
+    FORVKFUNC(GetPhysicalDeviceProperties) \
+    FORVKFUNC(GetPhysicalDeviceProperties2)
 
 #define VK_DEVICE_FUNCS \
     FORVKFUNC(AllocateCommandBuffers) \
     FORVKFUNC(AllocateDescriptorSets) \
     FORVKFUNC(AllocateMemory) \
     FORVKFUNC(BeginCommandBuffer) \
+    FORVKFUNC(ResetCommandBuffer) \
     FORVKFUNC(BindBufferMemory) \
     FORVKFUNC(BindImageMemory) \
     FORVKFUNC(CmdBeginRenderPass) \
@@ -26,11 +28,14 @@
     FORVKFUNC(CmdBindPipeline) \
     FORVKFUNC(CmdBindVertexBuffers) \
     FORVKFUNC(CmdBlitImage) \
+    FORVKFUNC(CmdClearAttachments) \
+    FORVKFUNC(CmdClearColorImage) \
+    FORVKFUNC(CmdClearDepthStencilImage) \
     FORVKFUNC(CmdCopyBufferToImage) \
     FORVKFUNC(CmdCopyImageToBuffer) \
     FORVKFUNC(CmdCopyImage) \
+    FORVKFUNC(CmdResolveImage) \
     FORVKFUNC(CmdExecuteCommands) \
-    FORVKFUNC(CmdClearColorImage) \
     FORVKFUNC(CmdDispatch) \
     FORVKFUNC(CmdDraw) \
     FORVKFUNC(CmdDrawIndexed) \

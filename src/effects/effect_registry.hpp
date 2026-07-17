@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <list>
 #include <unordered_map>
 #include <map>
 #include <memory>
@@ -23,11 +24,12 @@ namespace vkShade
         void initialize(Config* pConfig);
 
         // Get all effect configs (enabled + disabled)
-        // NOTE: caller must not hold this reference across effect mutations
-        const std::vector<EffectConfig>& getAllEffects() const
+        // NOTE: caller must not hold this reference across effect mutations.
+        // Uses std::list internally so pointers/references to elements remain stable
+        // across push_back/erase (the primary mutation operations).
+        const std::list<EffectConfig>& getAllEffects() const
         {
             // No mutex here — intended for same-thread use only (overlay render thread).
-            // For cross-thread access, use getEnabledEffects() which copies.
             return effects;
         }
 
@@ -111,7 +113,7 @@ namespace vkShade
         void initializeSelectedEffectsFromConfig();
 
     private:
-        std::vector<EffectConfig> effects;
+        std::list<EffectConfig> effects;
         std::vector<std::string> selectedEffects;  // Ordered list of selected effects for UI
         bool initializedFromConfig = false;        // True once first load from config is complete
         Config* pConfig = nullptr;

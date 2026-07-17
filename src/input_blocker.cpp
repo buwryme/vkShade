@@ -7,7 +7,7 @@
 
 namespace vkShade
 {
-    static bool blockingEnabled = false;
+    static std::atomic<bool> blockingEnabled{false};
     // Atomic: written by overlay thread (setInputBlocked), read by game thread
     // (isInputBlocked via Wayland interpose wrapper callbacks)
     static std::atomic<bool> blocked{false};
@@ -42,7 +42,7 @@ namespace vkShade
 
     void setInputBlocked(bool shouldBlock)
     {
-        if (!blockingEnabled)
+        if (!blockingEnabled.load(std::memory_order_acquire))
             return;
 
         if (!isWayland())

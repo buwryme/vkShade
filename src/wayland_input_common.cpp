@@ -2,6 +2,7 @@
 #include "wayland_display.hpp"
 #include "logger.hpp"
 
+#include <atomic>
 #include <cstring>
 #include <poll.h>
 
@@ -16,8 +17,8 @@ namespace vkShade
     // Frame-level dispatch deduplication — tracks a monotonic counter so
     // multiple callers (getMouseState, getKeyboardState, isKeyPressed×N)
     // within the same frame only do one real dispatch.
-    static uint64_t dispatchFrameId = 0;
-    static uint64_t lastDispatchedFrame = 0;
+    static std::atomic<uint64_t> dispatchFrameId{0};
+    static std::atomic<uint64_t> lastDispatchedFrame{0};
 
     // Device bind callbacks — set by keyboard/mouse modules before init
     static KeyboardBindCallback keyboardBind = nullptr;
@@ -60,7 +61,7 @@ namespace vkShade
     static void registryGlobal(void* /*data*/, wl_registry* reg,
                                uint32_t name, const char* interface, uint32_t version)
     {
-        if (std::strcmp(interface, wl_seat_interface.name) != 0)
+        if (strcmp(interface, wl_seat_interface.name) != 0)
             return;
         if (seat)
             return;
@@ -151,15 +152,16 @@ namespace vkShade
 
     void beginWaylandInputFrame()
     {
-        dispatchFrameId++;
+        dispatchFrameId.fetch_add(1, std::memory_order_release);
     }
 
     void dispatchWaylandInputEvents()
     {
         // Skip if already dispatched this frame
-        if (lastDispatchedFrame == dispatchFrameId)
+        uint64_t currentFrame = dispatchFrameId.load(std::memory_order_acquire);
+        if (lastDispatchedFrame.load(std::memory_order_acquire) == currentFrame)
             return;
-        lastDispatchedFrame = dispatchFrameId;
+        lastDispatchedFrame.store(currentFrame, std::memory_order_release);
 
         if (!queue)
             return;

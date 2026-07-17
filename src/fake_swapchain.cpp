@@ -6,12 +6,12 @@
 
 namespace vkShade
 {
-    std::vector<VkImage> createFakeSwapchainImages(LogicalDevice*           pLogicalDevice,
-                                                   VkSwapchainCreateInfoKHR swapchainCreateInfo,
-                                                   uint32_t                 count,
-                                                   VkDeviceMemory&          deviceMemory)
+    std::vector<VkImage> createFakeSwapchainImages(LogicalDevice*               pLogicalDevice,
+                                                   VkSwapchainCreateInfoKHR     swapchainCreateInfo,
+                                                   uint32_t                    count,
+                                                   std::vector<VkDeviceMemory>& deviceMemories)
     {
-        deviceMemory = VK_NULL_HANDLE;
+        deviceMemories.clear();
         if (count == 0)
         {
             Logger::err("Cannot create fake swapchain images with count=0");
@@ -57,50 +57,118 @@ namespace vkShade
         for (uint32_t i = 0; i < count; i++)
         {
             result = pLogicalDevice->vkd.CreateImage(pLogicalDevice->device, &imageCreateInfo, nullptr, &(fakeImages[i]));
-            ASSERT_VULKAN(result);
+            if (result != VK_SUCCESS)
+            {
+                Logger::err("createFakeSwapchainImages: CreateImage[" + std::to_string(i) + "] failed: " + std::to_string(result));
+                for (VkImage img : fakeImages)
+                    if (img != VK_NULL_HANDLE)
+                        pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, img, nullptr);
+                return {};
+            }
         }
 
-        auto cleanupCreatedImages = [&]() {
-            for (VkImage image : fakeImages)
-            {
-                if (image != VK_NULL_HANDLE)
-                    pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, image, nullptr);
-            }
-        };
-
-        // Allocate a bunch of memory for all images at one
+        // Get memory requirements from first image
         VkMemoryRequirements memoryRequirements;
         pLogicalDevice->vkd.GetImageMemoryRequirements(pLogicalDevice->device, fakeImages[0], &memoryRequirements);
 
         Logger::debug("fake image size: " + std::to_string(memoryRequirements.size));
         Logger::debug("fake image alignment: " + std::to_string(memoryRequirements.alignment));
 
-        if (memoryRequirements.size % memoryRequirements.alignment != 0)
+        auto memoryTypeIndex = findMemoryTypeIndex(pLogicalDevice, memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (memoryTypeIndex == 0xFFFFFFFF)
         {
-            memoryRequirements.size = (memoryRequirements.size / memoryRequirements.alignment + 1) * memoryRequirements.alignment;
-        }
-
-        VkMemoryAllocateInfo memoryAllocateInfo;
-        memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        memoryAllocateInfo.pNext = nullptr;
-        if (count > 0 && memoryRequirements.size > (std::numeric_limits<VkDeviceSize>::max() / count))
-        {
-            Logger::err("fake swapchain allocation overflow");
-            cleanupCreatedImages();
+            Logger::err("createFakeSwapchainImages: no valid memory type");
+            for (VkImage img : fakeImages)
+                pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, img, nullptr);
             return {};
         }
-        memoryAllocateInfo.allocationSize = memoryRequirements.size * count;
-        memoryAllocateInfo.memoryTypeIndex =
-            findMemoryTypeIndex(pLogicalDevice, memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-        result = pLogicalDevice->vkd.AllocateMemory(pLogicalDevice->device, &memoryAllocateInfo, nullptr, &deviceMemory);
-        ASSERT_VULKAN(result);
+        // Pad per-image size to alignment
+        VkDeviceSize alignedSize = memoryRequirements.size;
+        if (alignedSize % memoryRequirements.alignment != 0)
+            alignedSize = (alignedSize / memoryRequirements.alignment + 1) * memoryRequirements.alignment;
 
+        VkDeviceSize bulkSize = alignedSize * count;
+
+        // --- Attempt 1: single bulk allocation ---
+        VkMemoryAllocateInfo allocInfo = {};
+        allocInfo.sType            = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize   = bulkSize;
+        allocInfo.memoryTypeIndex  = memoryTypeIndex;
+
+        VkDeviceMemory bulkMemory = VK_NULL_HANDLE;
+        result = pLogicalDevice->vkd.AllocateMemory(pLogicalDevice->device, &allocInfo, nullptr, &bulkMemory);
+
+        if (result == VK_SUCCESS)
+        {
+            Logger::debug("createFakeSwapchainImages: bulk allocation succeeded (" + std::to_string(bulkSize) + " bytes)");
+
+            bool bindOk = true;
+            for (uint32_t i = 0; i < count; i++)
+            {
+                result = pLogicalDevice->vkd.BindImageMemory(pLogicalDevice->device, fakeImages[i], bulkMemory, alignedSize * i);
+                if (result != VK_SUCCESS)
+                {
+                    Logger::err("createFakeSwapchainImages: BindImageMemory[" + std::to_string(i) + "] failed: " + std::to_string(result));
+                    bindOk = false;
+                    break;
+                }
+            }
+
+            if (bindOk)
+            {
+                deviceMemories.push_back(bulkMemory);
+                return fakeImages;
+            }
+
+            pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, bulkMemory, nullptr);
+        }
+        else
+        {
+            Logger::warn("createFakeSwapchainImages: bulk allocation failed (" + std::to_string(result)
+                         + " size=" + std::to_string(bulkSize) + " type=" + std::to_string(memoryTypeIndex)
+                         + "), falling back to per-image allocation");
+        }
+
+        // --- Attempt 2: per-image allocation ---
+        // Handles translation layers (e.g. Sober/Android-on-Linux) that reject
+        // large contiguous allocations or report huge alignment requirements.
+        allocInfo.allocationSize = memoryRequirements.size; // raw per-image size
+
+        deviceMemories.reserve(count);
         for (uint32_t i = 0; i < count; i++)
         {
-            result = pLogicalDevice->vkd.BindImageMemory(pLogicalDevice->device, fakeImages[i], deviceMemory, memoryRequirements.size * i);
-            ASSERT_VULKAN(result);
+            VkDeviceMemory imgMem = VK_NULL_HANDLE;
+            result = pLogicalDevice->vkd.AllocateMemory(pLogicalDevice->device, &allocInfo, nullptr, &imgMem);
+            if (result != VK_SUCCESS)
+            {
+                Logger::err("createFakeSwapchainImages: per-image AllocateMemory[" + std::to_string(i)
+                             + "] failed: " + std::to_string(result));
+                // Free everything allocated so far
+                for (VkDeviceMemory m : deviceMemories)
+                    pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, m, nullptr);
+                for (VkImage img : fakeImages)
+                    pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, img, nullptr);
+                return {};
+            }
+
+            result = pLogicalDevice->vkd.BindImageMemory(pLogicalDevice->device, fakeImages[i], imgMem, 0);
+            if (result != VK_SUCCESS)
+            {
+                Logger::err("createFakeSwapchainImages: per-image BindImageMemory[" + std::to_string(i)
+                             + "] failed: " + std::to_string(result));
+                pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, imgMem, nullptr);
+                for (VkDeviceMemory m : deviceMemories)
+                    pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, m, nullptr);
+                for (VkImage img : fakeImages)
+                    pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, img, nullptr);
+                return {};
+            }
+
+            deviceMemories.push_back(imgMem);
         }
+
+        Logger::info("createFakeSwapchainImages: per-image allocation succeeded (" + std::to_string(count) + " images)");
         return fakeImages;
     }
 } // namespace vkShade

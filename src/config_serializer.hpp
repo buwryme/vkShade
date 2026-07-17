@@ -30,6 +30,38 @@ namespace vkShade
         bool autoApply = true;  // Auto-apply changes without clicking Apply
         int autoApplyDelay = 200;  // ms delay before auto-applying changes
         bool showDebugWindow = false;  // Show debug window with raw effect registry data
+        // Depth buffer resolve mode for MSAA sources (Advanced tab).
+        // 0 = auto (prefer average, fall back to sample-zero),
+        // 1 = sample-zero, 2 = average. Only applied when supported by the device.
+        int depthResolveMode = 0;
+        // Optional manual depth buffer pin (Advanced tab). When non-empty, the
+        // layer pins depth capture to this tracked image view key instead of
+        // using the best-candidate heuristic. "" = auto-promotion.
+        std::string depthManualPin;
+        // Workaround for transient multisampled depth attachments (Advanced tab).
+        // When true, vkShade injects its own depth resolve attachment so the
+        // resolved depth survives past the render pass for effects to sample.
+        bool depthTransientWorkaround = false;
+        // Depth capture method for persistent storage path (Advanced tab).
+        // 0 = off (use legacy per-swapchain resolve only),
+        // 1 = Option A: RenderPassEnd hook (recommended, blit inline at CmdEndRenderPass),
+        // 2 = Option B: QueueSubmit interception (robust fallback, inject blit at submit).
+        int depthCaptureMethod = 0;
+
+        // --- Alternative depth buffer handling ---
+        // Depth source channel/mode selection (Advanced tab).
+        // Comprehensive support for deferred rendering depth encodings:
+        //   0 = Luminance/Red (standard Vulkan depth from R channel)
+        //   1 = Alpha (alpha-encoded depth)
+        //   2 = Packed RGB (depth distributed across RGB channels)
+        //   3 = Logarithmic (log-encoded depth, needs linearization)
+        //   4 = View-space Z (raw view-space Z value)
+        //   5 = Normalized Device Coordinates / NDC
+        //   6 = Reversed-Z (inverted depth range for precision)
+        int depthSourceChannel = 0;
+        // Invert depth values after reading from source.
+        // When enabled, depth = 1.0 - depth (flips near/far planes).
+        bool depthInvert = false;
     };
 
     // Per-profile settings (stored in per-game .conf files)

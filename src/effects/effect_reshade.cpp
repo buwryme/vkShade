@@ -21,6 +21,7 @@
 #include "image.hpp"
 #include "format.hpp"
 #include "config_serializer.hpp"
+#include "settings_manager.hpp"
 #include "reshade/reshade_depth_macros.hpp"
 
 #include "util.hpp"
@@ -557,7 +558,7 @@ namespace vkShade
                 int                  width;
                 int                  height;
 
-                size = textureExtent.width * textureExtent.height * desiredChannels;
+                size = textureExtent.width * textureExtent.height * textureExtent.depth * desiredChannels;
 
                 if (file == nullptr)
                 {
@@ -1721,115 +1722,142 @@ namespace vkShade
 
     ReshadeEffect::~ReshadeEffect()
     {
-        Logger::debug("destroying ReshadeEffect" + convertToString(this));
+        // Guard against a null or already-destroyed device pointer.  This can
+        // happen when the VkDevice is destroyed before all shared_ptr<Effect>
+        // references are released (e.g. during layer teardown on Wayland where
+        // the swapchain is destroyed and recreated before any frame renders).
+        if (!pLogicalDevice || pLogicalDevice->device == VK_NULL_HANDLE)
+            return;
+
+        Logger::info("[DESTROY-TRACE] ~ReshadeEffect start: " + effectName + " passRuntimes=" + std::to_string(passRuntimes.size()));
+
+        // ----------------------------------------------------------------
+        // 1.  Destroy pass-level GPU objects (pipelines, render passes,
+        //     framebuffers).  These reference the descriptor set layouts and
+        //     shader module, so destroy them first.
+        // ----------------------------------------------------------------
         for (auto& passRuntime : passRuntimes)
         {
+            for (auto& framebuffer : passRuntime.framebuffers)
+            {
+                if (framebuffer != VK_NULL_HANDLE)
+                    pLogicalDevice->vkd.DestroyFramebuffer(pLogicalDevice->device, framebuffer, nullptr);
+            }
             if (passRuntime.pipeline != VK_NULL_HANDLE)
                 pLogicalDevice->vkd.DestroyPipeline(pLogicalDevice->device, passRuntime.pipeline, nullptr);
             if (passRuntime.renderPass != VK_NULL_HANDLE)
                 pLogicalDevice->vkd.DestroyRenderPass(pLogicalDevice->device, passRuntime.renderPass, nullptr);
-            for (auto& framebuffer : passRuntime.framebuffers)
-            {
-                pLogicalDevice->vkd.DestroyFramebuffer(pLogicalDevice->device, framebuffer, nullptr);
-            }
         }
 
+        // ----------------------------------------------------------------
+        // 2.  Destroy the uniform staging buffer (unmap → free memory →
+        //     destroy buffer).
+        // ----------------------------------------------------------------
         if (bufferSize)
         {
             if (stagingBufferMapped)
                 pLogicalDevice->vkd.UnmapMemory(pLogicalDevice->device, stagingBufferMemory);
-            pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, stagingBufferMemory, nullptr);
+            if (stagingBufferMemory != VK_NULL_HANDLE)
+                pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, stagingBufferMemory, nullptr);
+            if (stagingBuffer != VK_NULL_HANDLE)
                 pLogicalDevice->vkd.DestroyBuffer(pLogicalDevice->device, stagingBuffer, nullptr);
         }
 
-        pLogicalDevice->vkd.DestroyPipelineLayout(pLogicalDevice->device, pipelineLayout, nullptr);
+        // ----------------------------------------------------------------
+        // 3.  Destroy descriptor pool (implicitly frees all descriptor sets
+        //     allocated from it) followed by descriptor set layouts and the
+        //     shader module.
+        // ----------------------------------------------------------------
+        if (descriptorPool != VK_NULL_HANDLE)
+            pLogicalDevice->vkd.DestroyDescriptorPool(pLogicalDevice->device, descriptorPool, nullptr);
+        if (pipelineLayout != VK_NULL_HANDLE)
+            pLogicalDevice->vkd.DestroyPipelineLayout(pLogicalDevice->device, pipelineLayout, nullptr);
+        if (imageSamplerDescriptorSetLayout != VK_NULL_HANDLE)
+            pLogicalDevice->vkd.DestroyDescriptorSetLayout(pLogicalDevice->device, imageSamplerDescriptorSetLayout, nullptr);
+        if (uniformDescriptorSetLayout != VK_NULL_HANDLE)
+            pLogicalDevice->vkd.DestroyDescriptorSetLayout(pLogicalDevice->device, uniformDescriptorSetLayout, nullptr);
+        if (shaderModule != VK_NULL_HANDLE)
+            pLogicalDevice->vkd.DestroyShaderModule(pLogicalDevice->device, shaderModule, nullptr);
 
-        pLogicalDevice->vkd.DestroyDescriptorSetLayout(pLogicalDevice->device, imageSamplerDescriptorSetLayout, nullptr);
-        pLogicalDevice->vkd.DestroyDescriptorSetLayout(pLogicalDevice->device, uniformDescriptorSetLayout, nullptr);
+        // ----------------------------------------------------------------
+        // 4.  Collect ALL image views into a single deduplication set, then
+        //     destroy each unique handle exactly once.
+        //
+        //     CRITICAL FIX: the constructor stores the same VkImageView
+        //     handles in multiple member vectors/maps (e.g. COLOR/DEPTH
+        //     semantic textures share handles with inputImageViewsSRGB).
+        //     Destroying them in separate loops caused a double-free that
+        //     crashed the NVIDIA driver.  The unified set prevents this.
+        // ----------------------------------------------------------------
+        std::set<VkImageView> allImageViews;
 
-        pLogicalDevice->vkd.DestroyShaderModule(pLogicalDevice->device, shaderModule, nullptr);
-
-        pLogicalDevice->vkd.DestroyDescriptorPool(pLogicalDevice->device, descriptorPool, nullptr);
-        for (auto& imageView : outputImageViewsSRGB)
+        auto collectViews = [&allImageViews](const std::vector<VkImageView>& views)
         {
+            for (auto v : views)
+                if (v != VK_NULL_HANDLE)
+                    allImageViews.insert(v);
+        };
+        auto collectViewMap = [&allImageViews](const std::unordered_map<std::string, std::vector<VkImageView>>& map)
+        {
+            for (auto& kv : map)
+                for (auto v : kv.second)
+                    if (v != VK_NULL_HANDLE)
+                        allImageViews.insert(v);
+        };
+
+        collectViews(inputImageViewsSRGB);
+        collectViews(inputImageViewsUNORM);
+        collectViews(outputImageViewsSRGB);
+        collectViews(outputImageViewsUNORM);
+        collectViews(backBufferImageViewsSRGB);
+        collectViews(backBufferImageViewsUNORM);
+        collectViewMap(textureImageViewsSRGB);
+        collectViewMap(textureImageViewsUNORM);
+        collectViewMap(renderImageViewsSRGB);
+        collectViewMap(renderImageViewsUNORM);
+        if (stencilImageView != VK_NULL_HANDLE)
+            allImageViews.insert(stencilImageView);
+
+        for (auto imageView : allImageViews)
             pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, imageView, nullptr);
-        }
-        for (auto& imageView : outputImageViewsUNORM)
-        {
-            pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, imageView, nullptr);
-        }
 
-        for (auto& imageView : backBufferImageViewsSRGB)
-        {
-            pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, imageView, nullptr);
-        }
-        for (auto& imageView : backBufferImageViewsUNORM)
-        {
-            pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, imageView, nullptr);
-        }
+        // ----------------------------------------------------------------
+        // 5.  Collect and destroy all images.  Use a set for the same
+        //     reason — texture images may share handles with other members.
+        // ----------------------------------------------------------------
+        std::set<VkImage> allImages;
+        for (auto& kv : textureImages)
+            for (auto img : kv.second)
+                if (img != VK_NULL_HANDLE)
+                    allImages.insert(img);
+        for (auto img : backBufferImages)
+            if (img != VK_NULL_HANDLE)
+                allImages.insert(img);
+        if (stencilImage != VK_NULL_HANDLE)
+            allImages.insert(stencilImage);
 
-        std::set<VkImageView> imageViewSet;
-
-        for (auto& it : textureImageViewsSRGB)
-        {
-            for (auto imageView : it.second)
-            {
-                imageViewSet.insert(imageView);
-            }
-        }
-        for (auto& it : textureImageViewsUNORM)
-        {
-            for (auto imageView : it.second)
-            {
-                imageViewSet.insert(imageView);
-            }
-        }
-
-        for (auto& it : renderImageViewsSRGB)
-        {
-            for (auto imageView : it.second)
-            {
-                imageViewSet.insert(imageView);
-            }
-        }
-        for (auto& it : renderImageViewsUNORM)
-        {
-            for (auto imageView : it.second)
-            {
-                imageViewSet.insert(imageView);
-            }
-        }
-
-        for (auto imageView : imageViewSet)
-        {
-            pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, imageView, nullptr);
-        }
-        pLogicalDevice->vkd.DestroyImageView(pLogicalDevice->device, stencilImageView, nullptr);
-
-        for (auto& it : textureImages)
-        {
-            for (auto image : it.second)
-            {
-                pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, image, nullptr);
-            }
-        }
-
-        for (auto& image : backBufferImages)
-        {
+        for (auto image : allImages)
             pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, image, nullptr);
-        }
 
-        pLogicalDevice->vkd.DestroyImage(pLogicalDevice->device, stencilImage, nullptr);
-
+        // ----------------------------------------------------------------
+        // 6.  Destroy samplers.
+        // ----------------------------------------------------------------
         for (auto& sampler : samplers)
         {
-            pLogicalDevice->vkd.DestroySampler(pLogicalDevice->device, sampler, nullptr);
+            if (sampler != VK_NULL_HANDLE)
+                pLogicalDevice->vkd.DestroySampler(pLogicalDevice->device, sampler, nullptr);
         }
 
+        // ----------------------------------------------------------------
+        // 7.  Free all device memory (one entry per unique allocation).
+        // ----------------------------------------------------------------
         for (auto& memory : textureMemory)
         {
-            pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, memory, nullptr);
+            if (memory != VK_NULL_HANDLE)
+                pLogicalDevice->vkd.FreeMemory(pLogicalDevice->device, memory, nullptr);
         }
+
+        Logger::info("[DESTROY-TRACE] ~ReshadeEffect complete");
     }
 
     void ReshadeEffect::createReshadeModule()
@@ -1846,7 +1874,12 @@ namespace vkShade
         preprocessor.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
         preprocessor.add_macro_definition("BUFFER_COLOR_DEPTH", (inputOutputFormatUNORM == VK_FORMAT_A2R10G10B10_UNORM_PACK32) ? "10" : "8");
         preprocessor.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "BUFFER_COLOR_DEPTH");
-        addReshadeDepthMacros(preprocessor);
+        
+        // Pass current depth mode settings to ReShade for proper depth interpretation
+        // This ensures flawless depth passthrough to effects (DOF, SSAO, etc.)
+        const int depthMode = settingsManager.getDepthSourceChannel();
+        const bool depthInvert = settingsManager.getDepthInvert();
+        addReshadeDepthMacros(preprocessor, depthMode, depthInvert);
 
         // Keep runtime compilation behavior aligned with reshade_parser compatibility shims.
         preprocessor.append_string(

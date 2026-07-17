@@ -13,10 +13,10 @@
 
 namespace vkShade
 {
-    std::vector<VkImage> createFakeSwapchainImages(LogicalDevice*           pLogicalDevice,
-                                                   VkSwapchainCreateInfoKHR swapchainCreateInfo,
-                                                   uint32_t                 count,
-                                                   VkDeviceMemory&          deviceMemory);
+    std::vector<VkImage> createFakeSwapchainImages(LogicalDevice*                    pLogicalDevice,
+                                                      VkSwapchainCreateInfoKHR          swapchainCreateInfo,
+                                                      uint32_t                          count,
+                                                      std::vector<VkDeviceMemory>&      deviceMemories);
 }
 
 #endif // FAKE_SWAPCHAIN_HPP_INCLUDED

@@ -1,0 +1,50 @@
+{
+  "id": "org.freedesktop.Platform.VulkanLayer.vkShade",
+  "branch": "25.08",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "25.08",
+  "sdk": "org.freedesktop.Sdk",
+  "build-extension": true,
+  "modules": [
+    {
+      "name": "spirv-headers",
+      "buildsystem": "simple",
+      "build-commands": [
+        "mkdir -p ${FLATPAK_DEST}/include/spirv",
+        "cp -r include/spirv ${FLATPAK_DEST}/include/"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/KhronosGroup/SPIRV-Headers.git",
+          "tag": "vulkan-sdk-1.4.350.1"
+        }
+      ]
+    },
+    {
+      "name": "vkshade",
+      "buildsystem": "meson",
+      "build-options": {
+        "prepend-pkg-config-path": "/usr/lib/extensions/vulkan/vkShade/lib/pkgconfig",
+        "env": {
+          "CPPFLAGS": "-I/usr/lib/extensions/vulkan/vkShade/include"
+        }
+      },
+      "config-opts": [
+        "--buildtype=release",
+        "--prefix=/usr/lib/extensions/vulkan/vkShade",
+        "--libdir=/usr/lib/extensions/vulkan/vkShade/lib",
+        "-Dappend_libdir_vkshade=false",
+        "-Dwith_so=true",
+        "-Dwith_json=true",
+        "-Dcpp_args=-I/usr/lib/extensions/vulkan/vkShade/include"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "."
+        }
+      ]
+    }
+  ]
+}
