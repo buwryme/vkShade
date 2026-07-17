@@ -728,10 +728,19 @@ namespace vkShade
     static bool isQualifiedDepthCandidate(LogicalDevice* pLogicalDevice,
                                           const LogicalDevice::DepthScopeTrackingState& scopeState)
     {
-        return hasDepthState(scopeState.depthState)
-            && scopeState.drawCount > 0
-            && (hasPresentableSnapshotTarget(scopeState.snapshotTarget)
-                || (scopeState.drawCount >= 64 && matchesAnySwapchainExtent(pLogicalDevice, scopeState.depthState)));
+        if (!hasDepthState(scopeState.depthState) || scopeState.drawCount == 0)
+            return false;
+
+        // INSTANT QUALIFICATION: If it exactly matches the game window size,
+        // we want it immediately, regardless of draw count or presentable linkage.
+        if (matchesAnySwapchainExtent(pLogicalDevice, scopeState.depthState))
+        {
+            return true;
+        }
+
+        // FALLBACK QUALIFICATION: Original logic for weird resolutions/shadow maps
+        return hasPresentableSnapshotTarget(scopeState.snapshotTarget)
+            || (scopeState.drawCount >= 64 && matchesAnySwapchainExtent(pLogicalDevice, scopeState.depthState));
     }
 
     template <typename Predicate>
@@ -1072,28 +1081,36 @@ namespace vkShade
         const bool scopeExtentMatchesPresentableTarget =
             matchesPresentableSnapshotTargetExtent(scopeState.depthState, scopeState.snapshotTarget);
 
+        // Calculate if this scope perfectly matches the game window (swapchain) size
+        const bool scopeMatchesWindowSize = matchesAnySwapchainExtent(pLogicalDevice, scopeState.depthState);
+
+        // Calculate if the CURRENT best candidate matches the window size
+        const bool bestMatchesWindowSize = pLogicalDevice->bestDepthCandidate.valid
+                                        ? matchesAnySwapchainExtent(pLogicalDevice, pLogicalDevice->bestDepthCandidate.depthState)
+                                        : false;
+
         bool shouldPromote = !pLogicalDevice->bestDepthCandidate.valid;
         if (!shouldPromote)
         {
-            const bool bestHasPresentableSnapshotTarget = pLogicalDevice->bestDepthCandidate.hasPresentableSnapshotTarget;
-            if (scopeHasPresentableSnapshotTarget != bestHasPresentableSnapshotTarget)
+            // PRIORITY 1: Exact game window size match (Absolute highest priority)
+            if (scopeMatchesWindowSize != bestMatchesWindowSize)
+            {
+                shouldPromote = scopeMatchesWindowSize;
+            }
+            // PRIORITY 2: Presentable snapshot target (Directly linked to swapchain color)
+            else if (scopeHasPresentableSnapshotTarget != pLogicalDevice->bestDepthCandidate.hasPresentableSnapshotTarget)
             {
                 shouldPromote = scopeHasPresentableSnapshotTarget;
             }
-            else if (scopeHasPresentableSnapshotTarget)
-            {
-                if (scopeState.drawCount != pLogicalDevice->bestDepthCandidate.drawCount)
-                {
-                    shouldPromote = scopeState.drawCount > pLogicalDevice->bestDepthCandidate.drawCount;
-                }
-                else if (scopeExtentMatchesPresentableTarget != pLogicalDevice->bestDepthCandidate.extentMatchesPresentableTarget)
-                {
-                    shouldPromote = scopeExtentMatchesPresentableTarget;
-                }
-            }
+            // PRIORITY 3: Draw count (More draws usually means main 3D geometry)
             else if (scopeState.drawCount != pLogicalDevice->bestDepthCandidate.drawCount)
             {
                 shouldPromote = scopeState.drawCount > pLogicalDevice->bestDepthCandidate.drawCount;
+            }
+            // PRIORITY 4: Extent matches presentable target (Fallback tiebreaker)
+            else if (scopeExtentMatchesPresentableTarget != pLogicalDevice->bestDepthCandidate.extentMatchesPresentableTarget)
+            {
+                shouldPromote = scopeExtentMatchesPresentableTarget;
             }
         }
 
