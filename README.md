@@ -11,8 +11,7 @@ A Flatpak/Sober-first fork of vkShade which also adds:
 
 These help form a post effects processing experience just like ReShade, but accessible to Linux.
 
-**If depth-dependent effects look wrong, please go into Advanced and choose a depth buffer that matches your game window,**
-**and make sure your depth resolve mode is set to Reverse-Z.**
+**If depth-dependent effects look wrong, please open the Advanced tab and try changing between depth resolve modes, which after each one, you press F10 (or your set keybind) to reload.
 
 
 
@@ -71,7 +70,8 @@ The `setup_sober.sh` script:
 - Compiles the project locally
 - Installs it as a local Flatpak repo and Vulkan Layer extension
 - Deploys shader manager configurations and all ReShade shaders
-Please open an issue if anything goes wrong
+
+Please open an issue if **anything** goes wrong, as long as it is indefinitely vkShade's fault.
 
 ### Key Bindings
 
