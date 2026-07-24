@@ -9,14 +9,13 @@ A Flatpak/Sober-first fork of **vkShade** which also adds:
 - More resolve ways to handle depth buffers
 - A nicer-ish UI
 
-Compiling and using for native apps or Flatpak apps outside of Sober is still possible, of course... But this project has been made with Sober in mind
+> Compiling and using for native apps or Flatpak apps outside of Sober is still possible, of course... But this project has been made with Sober in mind
 
 These help form a post effects processing experience just like ReShade, but accessible to Linux.
 
 **If depth-dependent effects look wrong, please open the Advanced tab and try changing between depth resolve modes, which after each one, you press F10 (or your set keybind) to reload.
 
-
-
+## ⚠️ Please open an issue if **anything** goes wrong, as long as it is indefinitely **vkShade**'s fault.
 
 To set it up for Sober, run `./setup_sober.sh`
 
@@ -33,33 +32,16 @@ The codebase needs a lot of work and removage of extra unneeded features sloboda
 
 The base project required editing config files and restarting. VKIntox adds:
 
-- **In-game overlay** (`Home` key) with dockable/undockable tab windows
-- **Add/remove/reorder effects** without restart (drag to reorder)
-- **Parameter sliders** for all types (float, int, uint, bool, vectors)
-- **Preprocessor definitions** editor for ReShade `#define` values
+- **In-game overlay** (`Home` key) with dockable/undockable tab windows and all management
 - **Multiple effect instances** (e.g., cas, cas.1, cas.2)
 - **Per-game profiles** with auto-detection and profile switching
 - **Save/load named configs**
-- **Shader manager** — browse directories, discover and load ReShade shaders
-- **Diagnostics** — FPS, frame time, GPU/VRAM usage (AMD, Intel, NVIDIA)
-- **Debug window** — effect state, log viewer, error display
-- **Auto-apply** — changes apply after configurable delay
-- **Up to 200 effects** with VRAM estimates
-- **Shader test tool** — batch-tests all `.fx` shaders for compilation errors and depth usage
-- **Graceful error handling** — failed effects show errors instead of crashing
-
-### Additional Platform and Overlay Work
-
-- **Wayland input blocking** — `wl_proxy_add_listener` interposition wraps game's pointer/keyboard listeners to suppress events when the overlay has focus
-- **X11 input blocking** — `XGrabPointer`/`XGrabKeyboard` when overlay is active
-- **Reliable Wayland mouse input** — time-based auto-release handles missing button releases from compositor grabs; motion-aware idle detection keeps buttons held during drags at any framerate
-- **Game pointer mirroring** — interpose layer mirrors button state from the game's pointer to the overlay, ensuring reliable press/release tracking via Wayland implicit grab
-- **Right-click context menus** on parameter sliders to reset to defaults
-- **Depth buffer ready flag** — `bufready_depth` uniform now correctly reports whether depth is available to shaders
+- **Shader manager** — browse directories, discover and load ReShade shaders (automatically setup by the script)
 
 ### Depth Buffer
 
 The layer automatically picks a depth buffer that fits the game window, which in almost all cases works perfectly.
+If misconfigured, for Roblox, the depth resolve mode should be Reverse-Z and inversion should be ON.
 
 ### ReShade Shader Support
 
@@ -75,8 +57,6 @@ The `setup_sober.sh` script:
 - Installs it as a local Flatpak repo and Vulkan Layer extension
 - Deploys shader manager configurations and all ReShade shaders
 
-Please open an issue if **anything** goes wrong, as long as it is indefinitely **vkShade**'s fault.
-
 ### Key Bindings
 
 | Key | Default | Description |
@@ -84,6 +64,12 @@ Please open an issue if **anything** goes wrong, as long as it is indefinitely *
 | Toggle Effects | `End` | Enable/disable all effects |
 | Reload Config | `F10` | Reload configuration and recompile shaders |
 | Toggle Overlay | `Home` | Show/hide the overlay GUI |
+
+### Known Issues/Info
+
+- Occasional crashes can happen; to minimise them, make sure your game is stabilised (e.g. in the catalog, everything, graphically speaking, finished loading in) before enabling the effects in the overlay.
+- Startup takes long due to deferred reboot workaround
+- The installation script isn't as efficient as it could be
 
 ### Special Thanks To
 slobodaapl, for making **vkShade** which is the direct source code reprise of this project
