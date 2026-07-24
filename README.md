@@ -15,7 +15,7 @@ These help form a post effects processing experience just like ReShade, but acce
 
 **If depth-dependent effects look wrong, please open the Advanced tab and try changing between depth resolve modes, which after each one, you press F10 (or your set keybind) to reload.
 
-## ⚠️ Please open an issue if **anything** goes wrong, as long as it is indefinitely **vkShade**'s fault.
+## ⚠️ Please open an issue if **anything** goes wrong, as long as it is indefinitely VKIntox's fault.
 
 To set it up for Sober, run `./setup_sober.sh`
 
