@@ -8,7 +8,7 @@
 
 #include <cstring>
 
-namespace vkShade
+namespace VKIntox
 {
     static zwp_pointer_constraints_v1* constraints = nullptr;
     static zwp_confined_pointer_v1* confinedPointer = nullptr;
@@ -209,4 +209,4 @@ namespace vkShade
         constraintsInitialized = false;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -lt 1 ]; then
+  echo "usage: vkintox-run <command> [args...]" >&2
+  exit 2
+fi
+
+VKINTOX_LIB=@VKINTOX_LIB@
+VKINTOX_AUDIT_LIB=@VKINTOX_AUDIT_LIB@
+
+if [ ! -r "$VKINTOX_LIB" ]; then
+  echo "vkintox-run: missing library: $VKINTOX_LIB" >&2
+  exit 1
+fi
+
+export ENABLE_VKINTOX="${ENABLE_VKINTOX:-1}"
+
+case ":${LD_PRELOAD:-}:" in
+  *":$VKINTOX_LIB:"*) ;;
+  *) export LD_PRELOAD="$VKINTOX_LIB${LD_PRELOAD:+:$LD_PRELOAD}" ;;
+esac
+
+# Enable audit redirection by default on Wayland to catch RTLD_LOCAL clients.
+if [ "${VKINTOX_USE_LD_AUDIT:-1}" != "0" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && [ -r "$VKINTOX_AUDIT_LIB" ]; then
+  case ":${LD_AUDIT:-}:" in
+    *":$VKINTOX_AUDIT_LIB:"*) ;;
+    *) export LD_AUDIT="$VKINTOX_AUDIT_LIB${LD_AUDIT:+:$LD_AUDIT}" ;;
+  esac
+fi
+
+exec "$@"

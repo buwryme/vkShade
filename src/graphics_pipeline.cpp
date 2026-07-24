@@ -1,6 +1,6 @@
 #include "graphics_pipeline.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, 
                                                    std::vector<VkDescriptorSetLayout> descriptorSetLayouts,
@@ -180,4 +180,4 @@ namespace vkShade
 
         return pipeline;
     }
-} // namespace vkShade
+} // namespace VKIntox

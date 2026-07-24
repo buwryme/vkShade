@@ -6,7 +6,7 @@
 #include <string>
 #include <atomic>
 
-namespace vkShade
+namespace VKIntox
 {
     static std::atomic<wl_display*> waylandDisplay{nullptr};
     static std::atomic<wl_surface*> waylandSurface{nullptr};
@@ -87,8 +87,8 @@ namespace vkShade
         waylandSurface.store(nullptr, std::memory_order_release);
         waylandChecked.store(0, std::memory_order_release);
         if (source && *source)
-            Logger::warn(std::string("unsupported non-Wayland Vulkan surface via ") + source + "; vkShade will pass through only");
+            Logger::warn(std::string("unsupported non-Wayland Vulkan surface via ") + source + "; VKIntox will pass through only");
         else
-            Logger::warn("unsupported non-Wayland Vulkan surface detected; vkShade will pass through only");
+            Logger::warn("unsupported non-Wayland Vulkan surface detected; VKIntox will pass through only");
     }
-} // namespace vkShade
+} // namespace VKIntox

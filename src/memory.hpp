@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     uint32_t findMemoryTypeIndex(LogicalDevice* pLogicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 }

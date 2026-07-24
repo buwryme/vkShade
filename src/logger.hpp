@@ -11,7 +11,7 @@
 #include <vector>
 #include <deque>
 
-namespace vkShade
+namespace VKIntox
 {
 
     enum class LogLevel : uint32_t
@@ -83,6 +83,6 @@ namespace vkShade
         static std::string getFileName();
     };
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // LOGGER_HPP_INCLUDED

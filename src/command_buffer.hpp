@@ -12,7 +12,7 @@
 #include "logical_device.hpp"
 
 #include "effects/effect.hpp"
-namespace vkShade
+namespace VKIntox
 {
     struct LogicalSwapchain;
 
@@ -20,7 +20,7 @@ namespace vkShade
 
     void writeCommandBuffers(LogicalDevice*                                 pLogicalDevice,
                              LogicalSwapchain*                              pLogicalSwapchain,
-                             std::vector<std::shared_ptr<vkShade::Effect>> effects,
+                             std::vector<std::shared_ptr<VKIntox::Effect>> effects,
                              std::vector<VkCommandBuffer>                   commandBuffers,
                              const DepthState&                              depthState);
 
@@ -31,6 +31,6 @@ namespace vkShade
                                     const DepthState&         depthState);
 
     std::vector<VkSemaphore> createSemaphores(LogicalDevice* pLogicalDevice, uint32_t count);
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // COMMAND_BUFFER_HPP_INCLUDED

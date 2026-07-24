@@ -13,7 +13,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     void ImGuiOverlay::startShaderTest()
     {
@@ -295,10 +295,10 @@ namespace vkShade
         }
     }
 
-} // namespace vkShade
+} // namespace VKIntox
 
 // Expose renderShaderTestResults for use by view_shader_manager.cpp
-namespace vkShade
+namespace VKIntox
 {
     void renderShaderTestResultsUI(
         const std::vector<std::tuple<std::string, std::string, bool, std::string>>& results,

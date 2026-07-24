@@ -15,7 +15,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     class SmaaEffect : public Effect
     {
@@ -70,6 +70,6 @@ namespace vkShade
 
         Config* pConfig;
     };
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // EFFECT_SMAA_HPP_INCLUDED

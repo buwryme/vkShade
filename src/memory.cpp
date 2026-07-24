@@ -1,6 +1,6 @@
 #include "memory.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     uint32_t findMemoryTypeIndex(LogicalDevice* pLogicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties)
     {
@@ -32,4 +32,4 @@ namespace vkShade
         Logger::err("No memory type matching filter bits at all");
         return 0xFFFFFFFF;
     }
-} // namespace vkShade
+} // namespace VKIntox

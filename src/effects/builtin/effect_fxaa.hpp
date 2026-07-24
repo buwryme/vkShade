@@ -13,7 +13,7 @@
 #include "../effect_simple.hpp"
 #include "config.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     class FxaaEffect : public SimpleEffect
     {
@@ -26,6 +26,6 @@ namespace vkShade
                    Config*              pConfig);
         ~FxaaEffect();
     };
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // EFFECT_FXAA_HPP_INCLUDED

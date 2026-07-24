@@ -12,7 +12,7 @@ cpp_args_reshade = cpp.get_supported_arguments(['-Wno-unknown-pragmas'])
 
 
 reshade_lib = static_library('reshade', reshade_src,
-    include_directories : vkShade_include_path,
+    include_directories : VKIntox_include_path,
     cpp_args : cpp_args_reshade,
     )
 

@@ -10,7 +10,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imfilebrowser.h"
 
-namespace vkShade
+namespace VKIntox
 {
     // Defined in view_shader_test.cpp
     void renderShaderTestResultsUI(
@@ -18,7 +18,7 @@ namespace vkShade
         const std::set<std::string>& depthShaderNames);
 }
 
-namespace vkShade
+namespace VKIntox
 {
     // Static file browser for adding directories
     static ImGui::FileBrowser dirBrowser(
@@ -235,4 +235,4 @@ namespace vkShade
 
     }
 
-} // namespace vkShade
+} // namespace VKIntox

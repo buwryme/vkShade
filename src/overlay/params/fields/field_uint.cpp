@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <string>
 
-namespace vkShade
+namespace VKIntox
 {
     // Robust unsigned int field editor with custom value input via right-click
     class UintFieldEditor : public FieldEditor
@@ -119,4 +119,4 @@ namespace vkShade
 
     REGISTER_FIELD_EDITOR(ParamType::Uint, UintFieldEditor)
 
-} // namespace vkShade
+} // namespace VKIntox

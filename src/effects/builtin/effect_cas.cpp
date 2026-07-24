@@ -13,7 +13,7 @@
 
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     CasEffect::CasEffect(LogicalDevice*       pLogicalDevice,
                          VkFormat             format,
@@ -47,4 +47,4 @@ namespace vkShade
     CasEffect::~CasEffect()
     {
     }
-} // namespace vkShade
+} // namespace VKIntox

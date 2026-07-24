@@ -5,28 +5,28 @@
 #include <locale>
 #include <array>
 
-namespace vkShade
+namespace VKIntox
 {
     Config::Config()
     {
-        // Find vkShade.conf in standard locations
+        // Find VKIntox.conf in standard locations
         const char* homeEnv = std::getenv("HOME");
         std::string homePath = homeEnv ? homeEnv : "/tmp";
 
         const char* tmpHomeEnv     = std::getenv("XDG_DATA_HOME");
-        std::string userConfigFile = tmpHomeEnv ? std::string(tmpHomeEnv) + "/vkShade/vkShade.conf"
-                                                : homePath + "/.local/share/vkShade/vkShade.conf";
+        std::string userConfigFile = tmpHomeEnv ? std::string(tmpHomeEnv) + "/VKIntox/VKIntox.conf"
+                                                : homePath + "/.local/share/VKIntox/VKIntox.conf";
 
         const char* tmpConfigEnv      = std::getenv("XDG_CONFIG_HOME");
-        std::string userXdgConfigFile = tmpConfigEnv ? std::string(tmpConfigEnv) + "/vkShade/vkShade.conf"
-                                                     : homePath + "/.config/vkShade/vkShade.conf";
+        std::string userXdgConfigFile = tmpConfigEnv ? std::string(tmpConfigEnv) + "/VKIntox/VKIntox.conf"
+                                                     : homePath + "/.config/VKIntox/VKIntox.conf";
 
         const std::array<std::string, 5> configPaths = {
             userXdgConfigFile,
             userConfigFile,
-            std::string(SYSCONFDIR) + "/vkShade.conf",
-            std::string(SYSCONFDIR) + "/vkShade/vkShade.conf",
-            std::string(DATADIR) + "/vkShade/vkShade.conf",
+            std::string(SYSCONFDIR) + "/VKIntox.conf",
+            std::string(SYSCONFDIR) + "/VKIntox/VKIntox.conf",
+            std::string(DATADIR) + "/VKIntox/VKIntox.conf",
         };
 
         for (const auto& path : configPaths)
@@ -42,7 +42,7 @@ namespace vkShade
             }
         }
 
-        Logger::err("no vkShade.conf found");
+        Logger::err("no VKIntox.conf found");
     }
 
     Config::Config(const std::string& path)
@@ -332,4 +332,4 @@ namespace vkShade
         return effects;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -30,8 +30,8 @@ overlay_src = [
     'overlay/params/fields/field_uintvec.cpp',
 ]
 
-vkShade_src = [
-    'vkshade.cpp',
+VKIntox_src = [
+    'vkintox.cpp',
     'buffer.cpp',
     'command_buffer.cpp',
     'config.cpp',
@@ -139,50 +139,50 @@ effects_inc = include_directories('effects')
 effects_builtin_inc = include_directories('effects/builtin')
 effects_params_inc = include_directories('effects/params')
 
-shared_library('vkshade',
-    vkShade_src, overlay_src, imgui_src, shader_include,
+shared_library('vkintox',
+    VKIntox_src, overlay_src, imgui_src, shader_include,
     link_with: [keyboard_input_x11_lib, mouse_input_lib, input_blocker_lib,
                 wayland_input_common_lib, keyboard_input_wayland_lib, mouse_input_wayland_lib,
                 wayland_pointer_constraints_lib, wayland_interpose_lib],
-    include_directories : [vkShade_include_path, imgui_inc, overlay_inc, effects_inc, effects_builtin_inc, effects_params_inc],
+    include_directories : [VKIntox_include_path, imgui_inc, overlay_inc, effects_inc, effects_builtin_inc, effects_params_inc],
     cpp_args : ['-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES'],
     dependencies : [x11_dep, xi_dep, wayland_client_dep, xkbcommon_dep, reshade_dep],
     gnu_symbol_visibility: 'hidden',
     install : true,
     install_dir : lib_dir)
 
-executable('vkshade-shader-check',
+executable('vkintox-shader-check',
     'shader_check.cpp',
     'reshade_parser.cpp',
     'config.cpp',
     'config_serializer.cpp',
     'logger.cpp',
-    include_directories : [vkShade_include_path, imgui_inc, overlay_inc, effects_inc, effects_builtin_inc, effects_params_inc],
+    include_directories : [VKIntox_include_path, imgui_inc, overlay_inc, effects_inc, effects_builtin_inc, effects_params_inc],
     dependencies : [reshade_dep],
     install : true)
 
 # LD_AUDIT library for Wine Wayland input interposition.
 # Redirects wl_proxy_add_listener bindings from dlopen(RTLD_LOCAL) scopes
-# (e.g. Wine's winewayland.so) to our wrapper in libvkshade.so.
+# (e.g. Wine's winewayland.so) to our wrapper in libvkintox.so.
 dl_dep = cpp.find_library('dl')
-shared_library('vkshade-audit',
+shared_library('vkintox-audit',
     'wayland_audit.c',
     dependencies: [dl_dep],
     install : true,
     install_dir : lib_dir)
 
-vkshade_run_conf = configuration_data()
-vkshade_run_conf.set_quoted('VKSHADE_LIB', join_paths(get_option('prefix'), lib_dir, 'libvkshade.so'))
-vkshade_run_conf.set_quoted('VKSHADE_AUDIT_LIB', join_paths(get_option('prefix'), lib_dir, 'libvkshade-audit.so'))
+vkintox_run_conf = configuration_data()
+vkintox_run_conf.set_quoted('VKINTOX_LIB', join_paths(get_option('prefix'), lib_dir, 'libvkintox.so'))
+vkintox_run_conf.set_quoted('VKINTOX_AUDIT_LIB', join_paths(get_option('prefix'), lib_dir, 'libvkintox-audit.so'))
 
-vkshade_run = configure_file(
-    input: '../scripts/vkshade-run.in',
-    output: 'vkshade-run',
-    configuration: vkshade_run_conf,
+vkintox_run = configure_file(
+    input: '../scripts/vkintox-run.in',
+    output: 'vkintox-run',
+    configuration: vkintox_run_conf,
 )
 
 install_data(
-    vkshade_run,
+    vkintox_run,
     install_dir: get_option('bindir'),
     install_mode: ['rwxr-xr-x'],
 )

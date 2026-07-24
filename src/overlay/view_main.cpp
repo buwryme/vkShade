@@ -12,11 +12,11 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 
-namespace vkShade
+namespace VKIntox
 {
     namespace
     {
-        constexpr const char* kEffectReorderPayload = "VKSHADE_EFFECT_REORDER";
+        constexpr const char* kEffectReorderPayload = "VKINTOX_EFFECT_REORDER";
 
         // Render a single preprocessor definition input, returns true if value changed
         void renderPreprocessorDef(PreprocessorDefinition& def, EffectRegistry* registry, const std::string& effectName)
@@ -577,4 +577,4 @@ namespace vkShade
         // Note: Auto-apply is handled globally in imgui_overlay.cpp
     }
 
-} // namespace vkShade
+} // namespace VKIntox

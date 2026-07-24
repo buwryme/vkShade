@@ -4,7 +4,7 @@
 
 #include <limits>
 
-namespace vkShade
+namespace VKIntox
 {
     std::vector<VkImage> createFakeSwapchainImages(LogicalDevice*               pLogicalDevice,
                                                    VkSwapchainCreateInfoKHR     swapchainCreateInfo,
@@ -171,4 +171,4 @@ namespace vkShade
         Logger::info("createFakeSwapchainImages: per-image allocation succeeded (" + std::to_string(count) + " images)");
         return fakeImages;
     }
-} // namespace vkShade
+} // namespace VKIntox

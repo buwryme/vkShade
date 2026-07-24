@@ -5,7 +5,7 @@
 
 #include "keyboard_input_wayland.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     static void warnNonWaylandKeyboardOnce(const char* message)
     {
@@ -47,4 +47,4 @@ namespace vkShade
         warnNonWaylandKeyboardOnce("non-Wayland Vulkan surface: keyboard polling disabled; returning default state");
         return KeyboardState();
     }
-} // namespace vkShade
+} // namespace VKIntox

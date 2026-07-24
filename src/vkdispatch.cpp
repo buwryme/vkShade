@@ -2,7 +2,7 @@
 
 #include "vkfuncs.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
 
     void fillDispatchTableInstance(VkInstance instance, PFN_vkGetInstanceProcAddr gipa, InstanceDispatch* table)
@@ -31,7 +31,7 @@ namespace vkShade
 #undef FORVKFUNC
     }
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #undef VK_INSTANCE_FUNCS
 #undef VK_DEVICE_FUNCS

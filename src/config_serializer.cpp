@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include <climits>
 
-namespace vkShade
+namespace VKIntox
 {
     namespace
     {
@@ -25,11 +25,11 @@ namespace vkShade
     {
         const char* xdgConfig = std::getenv("XDG_CONFIG_HOME");
         if (xdgConfig)
-            return std::string(xdgConfig) + "/vkShade";
+            return std::string(xdgConfig) + "/VKIntox";
 
         const char* home = std::getenv("HOME");
         if (home)
-            return std::string(home) + "/.config/vkShade";
+            return std::string(home) + "/.config/VKIntox";
 
         return "";
     }
@@ -120,7 +120,7 @@ namespace vkShade
     {
         const char* home = std::getenv("HOME");
         if (home)
-            return std::string(home) + "/.config/vkShade/default_config";
+            return std::string(home) + "/.config/VKIntox/default_config";
         return "";
     }
 
@@ -163,12 +163,12 @@ namespace vkShade
         VkBasaltSettings settings;
 
         // Check user config first, then fall back to system paths (same order as Config)
-        std::string userConfig = getBaseConfigDir() + "/vkShade.conf";
+        std::string userConfig = getBaseConfigDir() + "/VKIntox.conf";
 
         const std::array<std::string, 3> configPaths = {
             userConfig,
-            std::string(SYSCONFDIR) + "/vkShade/vkShade.conf",
-            std::string(SYSCONFDIR) + "/vkShade.conf",
+            std::string(SYSCONFDIR) + "/VKIntox/VKIntox.conf",
+            std::string(SYSCONFDIR) + "/VKIntox.conf",
         };
 
         std::string configPath;
@@ -305,16 +305,16 @@ namespace vkShade
 
         mkdir(baseDir.c_str(), 0755);
 
-        std::string configPath = baseDir + "/vkShade.conf";
+        std::string configPath = baseDir + "/VKIntox.conf";
         std::ofstream file(configPath);
         if (!file.is_open())
         {
-            Logger::err("Could not open vkShade.conf for writing: " + configPath);
+            Logger::err("Could not open VKIntox.conf for writing: " + configPath);
             return false;
         }
 
         // Write settings with comments
-        file << "# vkShade configuration\n\n";
+        file << "# VKIntox configuration\n\n";
 
         file << "# Overlay settings\n";
         const int clampedMaxEffects = std::clamp(settings.maxEffects, MIN_MAX_EFFECTS, MAX_MAX_EFFECTS);
@@ -330,8 +330,8 @@ namespace vkShade
         file << "overlayKey = " << settings.overlayKey << "\n";
 
         file << "\n# Startup behavior\n";
-        file << "enableOnLaunch = " << (settings.enableOnLaunch ? "true" : "false") << "\n";
-        file << "depthCapture = " << (settings.depthCapture ? "on" : "off") << "\n";
+        file << "enableOnLaunch = false\n";
+        file << "depthCapture = on\n";
 
         file << "\n# Debug\n";
         file << "showDebugWindow = " << (settings.showDebugWindow ? "true" : "false") << "\n";
@@ -353,9 +353,9 @@ namespace vkShade
         file << "#   4 = View-space Z (raw view-space Z)\n";
         file << "#   5 = NDC (Normalized Device Coordinates)\n";
         file << "#   6 = Reversed-Z (inverted for precision)\n";
-        file << "depthSourceChannel = " << settings.depthSourceChannel << "\n";
+        file << "depthSourceChannel = 6\n";
         file << "# depthInvert: invert depth values (flips near/far planes)\n";
-        file << "depthInvert = " << (settings.depthInvert ? "true" : "false") << "\n";
+        file << "depthInvert = true\n";
 
         file.close();
         Logger::info("Saved settings to: " + configPath);
@@ -371,7 +371,7 @@ namespace vkShade
         // Create directory if needed
         mkdir(baseDir.c_str(), 0755);
 
-        std::string configPath = baseDir + "/vkShade.conf";
+        std::string configPath = baseDir + "/VKIntox.conf";
 
         // Only create if no user config exists
         struct stat st;
@@ -380,7 +380,7 @@ namespace vkShade
 
         VkBasaltSettings defaults;
         saveSettings(defaults);
-        Logger::info("Created default vkShade.conf");
+        Logger::info("Created default VKIntox.conf");
     }
 
     std::string ConfigSerializer::detectGameName()
@@ -607,7 +607,7 @@ namespace vkShade
             return "";
         }
 
-        file << "# vkShade profile for " << gameName << "\n";
+        file << "# VKIntox profile for " << gameName << "\n";
         file << "# Auto-created on first launch\n\n";
         file << "effects = \n";
 
@@ -763,7 +763,7 @@ namespace vkShade
         if (!file.is_open())
             return false;
 
-        file << "# vkShade profile '" << profileName << "' for " << gameName << "\n\n";
+        file << "# VKIntox profile '" << profileName << "' for " << gameName << "\n\n";
         file << "effects = \n";
         file.close();
 
@@ -932,4 +932,4 @@ namespace vkShade
         return true;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

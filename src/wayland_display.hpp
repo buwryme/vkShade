@@ -3,7 +3,7 @@
 struct wl_display;
 struct wl_surface;
 
-namespace vkShade
+namespace VKIntox
 {
     // Called from vkCreateWaylandSurfaceKHR to capture the game's wl_display
     void setWaylandDisplay(wl_display* display);
@@ -26,4 +26,4 @@ namespace vkShade
     // Called from X11/Xwayland Vulkan surface creation wrappers to mark the
     // surface unsupported and disable processing/input interception.
     void markNonWaylandSurface(const char* source);
-} // namespace vkShade
+} // namespace VKIntox

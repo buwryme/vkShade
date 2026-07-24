@@ -12,7 +12,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     // Build version - increment this each build
     static constexpr int BUILD_NUMBER = 14;
@@ -568,4 +568,4 @@ namespace vkShade
         ImGui::EndChild();
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This feature adds **comprehensive alternative depth buffer handling** to vkShade, supporting **7 different depth encoding modes** commonly used by deferred renderers, plus a **runtime-toggleable inversion** switch. This ensures flawless depth passthrough to ReShade effects regardless of the application's depth buffer format.
+This feature adds **comprehensive alternative depth buffer handling** to VKIntox, supporting **7 different depth encoding modes** commonly used by deferred renderers, plus a **runtime-toggleable inversion** switch. This ensures flawless depth passthrough to ReShade effects regardless of the application's depth buffer format.
 
 ## Features
 
@@ -103,7 +103,7 @@ switch (depthParams.depthMode) {
 
 **Before (BROKEN):**
 ```cpp
-// vkshade.cpp line 1490 - HARDCODED!
+// vkintox.cpp line 1490 - HARDCODED!
 createShaderModule(pLogicalDevice, depth_resolve_frag, &fragmentModule);
 ```
 
@@ -183,7 +183,7 @@ This ensures ReShade effects (DOF, SSAO, etc.) receive correctly configured dept
 
 ## Configuration Options
 
-Add to your `vkShade.conf`:
+Add to your `VKIntox.conf`:
 
 ```ini
 # Alternative depth buffer handling
@@ -232,7 +232,7 @@ Located in the **Advanced** tab:
 ### Modified Core Files
 | File | Changes |
 |------|---------|
-| `src/vkshade.cpp` | **FIXED:** Shader selection uses settings; Added push constant pipeline layout |
+| `src/vkintox.cpp` | **FIXED:** Shader selection uses settings; Added push constant pipeline layout |
 | `src/command_buffer.cpp` | **ADDED:** CmdPushConstants before CmdDraw; Added settings_manager include |
 | `src/graphics_pipeline.hpp/cpp` | **ENHANCED:** createGraphicsPipelineLayout accepts push constant ranges |
 | `src/config_serializer.hpp` | Expanded depthSourceChannel to 0-6 range with full documentation |
@@ -284,7 +284,7 @@ For engines using log-depth for large view distance ranges (space sims, flight s
 
 ### 🔴 CRITICAL: Shader Selection Not Working
 **Issue:** Settings existed but were never used for shader selection
-**Fix:** `vkshade.cpp` now reads `settingsManager.getDepthSourceChannel()` and selects appropriate shader
+**Fix:** `vkintox.cpp` now reads `settingsManager.getDepthSourceChannel()` and selects appropriate shader
 
 ### 🟡 IMPORTANT: Missing Push Constant Infrastructure  
 **Issue:** Shaders defined push constants but pipeline layout didn't include them

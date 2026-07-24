@@ -32,7 +32,7 @@
 //#define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
 
 //---- Disable all of Dear ImGui or don't implement standard windows/tools.
-// vkShade overlay: disable unused features to reduce binary size (~25KB) and
+// VKIntox overlay: disable unused features to reduce binary size (~25KB) and
 // instruction cache footprint. These are safe because the overlay never calls
 // ShowDemoWindow, ShowMetricsWindow, or uses clipboard/shell functions.
 //#define IMGUI_DISABLE                                     // Disable everything: all headers and source files will be empty.

@@ -10,7 +10,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     void ImGuiOverlay::renderDebugWindow()
     {
@@ -194,7 +194,7 @@ namespace vkShade
                 ImGui::SameLine();
                 if (ImGui::Button("Export"))
                 {
-                    std::string exportPath = ConfigSerializer::getBaseConfigDir() + "/vkshade-log.txt";
+                    std::string exportPath = ConfigSerializer::getBaseConfigDir() + "/vkintox-log.txt";
                     auto history = Logger::getHistory();
                     std::ofstream out(exportPath);
                     if (out.is_open())
@@ -206,7 +206,7 @@ namespace vkShade
                     }
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Save log to ~/.config/vkShade/vkshade-log.txt");
+                    ImGui::SetTooltip("Save log to ~/.config/VKIntox/vkintox-log.txt");
 
                 if (!hasSearch)
                     ImGui::TextDisabled("Type to search...");
@@ -266,4 +266,4 @@ namespace vkShade
         ImGui::End();
     }
 
-} // namespace vkShade
+} // namespace VKIntox

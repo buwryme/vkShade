@@ -3,7 +3,7 @@
 #include "buffer.hpp"
 #include "format.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     std::vector<VkImage> createImages(LogicalDevice*        pLogicalDevice,
                                       uint32_t              count,
@@ -347,4 +347,4 @@ namespace vkShade
                 commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &memoryBarrier);
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

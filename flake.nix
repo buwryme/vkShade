@@ -1,5 +1,5 @@
 {
-      description = "vkShade — Vulkan post-processing layer with in-game UI (Wayland + X11)";
+      description = "VKIntox — Vulkan post-processing layer with in-game UI (Wayland + X11)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -26,10 +26,10 @@
           pkgs = import nixpkgs { localSystem.system = system; };
         in
         {
-          default = self.packages.${system}.vkshade;
+          default = self.packages.${system}.vkintox;
 
-          vkshade = pkgs.stdenv.mkDerivation {
-            pname = "vkshade";
+          vkintox = pkgs.stdenv.mkDerivation {
+            pname = "vkintox";
             version = "0.1.0-unstable-${self.shortRev or "dirty"}";
 
             src = self;
@@ -56,28 +56,28 @@
             mesonBuildType = "release";
 
             mesonFlags = [
-              "-Dappend_libdir_vkshade=false"
+              "-Dappend_libdir_vkintox=false"
               "--sysconfdir=/etc"
             ];
 
             postInstall = ''
-              # vkshade-run wrapper: sets ENABLE_VKSHADE and LD_AUDIT for Wine
+              # vkintox-run wrapper: sets ENABLE_VKINTOX and LD_AUDIT for Wine
               # Wayland input interposition (dlopen RTLD_LOCAL bypass).
               mkdir -p "$out/bin"
-              substitute ${./vkshade-run.sh} "$out/bin/vkshade-run" \
+              substitute ${./vkintox-run.sh} "$out/bin/vkintox-run" \
                 --subst-var out
-              chmod +x "$out/bin/vkshade-run"
+              chmod +x "$out/bin/vkintox-run"
             '';
 
             meta = with pkgs.lib; {
               description = "Vulkan post-processing layer with real-time overlay UI (Wayland + X11)";
               license = licenses.zlib;
               platforms = [ "x86_64-linux" ];
-              mainProgram = "vkshade-run";
+              mainProgram = "vkintox-run";
             };
           };
 
-          vkshade-debug = self.packages.${system}.vkshade.overrideAttrs {
+          vkintox-debug = self.packages.${system}.vkintox.overrideAttrs {
             mesonBuildType = "debug";
           };
         }
@@ -110,7 +110,7 @@
       );
 
       overlays.default = final: _prev: {
-        inherit (self.packages.${final.stdenv.hostPlatform.system}) vkshade;
+        inherit (self.packages.${final.stdenv.hostPlatform.system}) vkintox;
       };
     };
 }

@@ -13,7 +13,7 @@
 
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     FxaaEffect::FxaaEffect(LogicalDevice*       pLogicalDevice,
                            VkFormat             format,
@@ -54,4 +54,4 @@ namespace vkShade
     FxaaEffect::~FxaaEffect()
     {
     }
-} // namespace vkShade
+} // namespace VKIntox

@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     void createBuffer(LogicalDevice*        pLogicalDevice,
                       VkDeviceSize          size,

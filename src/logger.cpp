@@ -4,7 +4,7 @@
 
 #include <sstream>
 
-namespace vkShade
+namespace VKIntox
 {
     Logger Logger::s_instance;
 
@@ -82,7 +82,7 @@ namespace vkShade
         if (level >= m_minLevel)
         {
             static std::array<const char*, 5> s_prefixes = {
-                {"vkShade trace: ", "vkShade debug: ", "vkShade info:  ", "vkShade warn:  ", "vkShade err:   "}};
+                {"VKIntox trace: ", "VKIntox debug: ", "VKIntox info:  ", "VKIntox warn:  ", "VKIntox err:   "}};
 
             const char* prefix = s_prefixes.at(static_cast<uint32_t>(level));
 
@@ -143,7 +143,7 @@ namespace vkShade
             {"none", LogLevel::None},
         }};
 
-        const char* envVar = getenv("VKSHADE_LOG_LEVEL");
+        const char* envVar = getenv("VKINTOX_LOG_LEVEL");
 
         const std::string logLevelStr = envVar ? envVar : "";
 
@@ -158,7 +158,7 @@ namespace vkShade
 
     std::string Logger::getFileName()
     {
-        const char* envVar = getenv("VKSHADE_LOG_FILE");
+        const char* envVar = getenv("VKINTOX_LOG_FILE");
 
         std::string filename = envVar ? envVar : "";
 
@@ -170,4 +170,4 @@ namespace vkShade
         return filename;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

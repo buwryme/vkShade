@@ -17,7 +17,7 @@
 #include "SearchTex.h"
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     SmaaEffect::SmaaEffect(LogicalDevice*       pLogicalDevice,
                            VkFormat             format,
@@ -353,4 +353,4 @@ namespace vkShade
 
         pLogicalDevice->vkd.DestroySampler(pLogicalDevice->device, sampler, nullptr);
     }
-} // namespace vkShade
+} // namespace VKIntox

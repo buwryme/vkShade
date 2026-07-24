@@ -1,6 +1,6 @@
 #include "logical_swapchain.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     void destroyDepthResolveResources(LogicalSwapchain* pLogicalSwapchain);
 
@@ -77,4 +77,4 @@ namespace vkShade
             // Note: ImGui overlay is now at device level, not destroyed here
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

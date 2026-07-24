@@ -4,7 +4,7 @@
 #include "wayland_display.hpp"
 #include "mouse_input_wayland.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     static void warnNonWaylandMouseOnce(const char* message)
     {
@@ -25,4 +25,4 @@ namespace vkShade
         return MouseState();
     }
 
-} // namespace vkShade
+} // namespace VKIntox

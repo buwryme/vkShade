@@ -10,7 +10,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     static bool matchesSearch(const std::string& text, const char* search)
     {
@@ -161,64 +161,59 @@ namespace vkShade
         size_t totalVisible = 0;
 
         // Built-in effects (filtered)
-        for (const auto& effectType : builtinEffects)
+        bool showedBuiltinHeader = false;
+        for (const auto& et : builtinEffects)
         {
-            if (!shouldShow(effectType))
+            if (!shouldShow(et))
                 continue;
-            if (!hasSearch)
-                ImGui::Text("Built-in:");
-            for (const auto& et : builtinEffects)
+            if (!showedBuiltinHeader && !hasSearch)
             {
-                if (shouldShow(et))
-                {
-                    renderAddButton(et);
-                    totalVisible++;
-                }
+                ImGui::Text("Built-in:");
+                showedBuiltinHeader = true;
             }
-            break;
+            renderAddButton(et);
+            totalVisible++;
         }
 
         // ReShade effects from current config (filtered)
-        for (const auto& effectType : sortedCurrentConfig)
+        bool showedCurrentConfigHeader = false;
+        for (const auto& et : sortedCurrentConfig)
         {
-            if (!shouldShow(effectType))
+            if (!shouldShow(et))
                 continue;
-            ImGui::Separator();
-            if (!hasSearch)
-                ImGui::Text("ReShade (%s):", state.configName.c_str());
-            for (const auto& et : sortedCurrentConfig)
+            if (!showedCurrentConfigHeader)
             {
-                if (shouldShow(et))
-                    continue;
-                auto it = state.effectPaths.find(et);
-                std::string path = (it != state.effectPaths.end()) ? it->second : "";
-                renderAddButton(et, path);
-                totalVisible++;
+                ImGui::Separator();
+                if (!hasSearch)
+                    ImGui::Text("ReShade (%s):", state.configName.c_str());
+                showedCurrentConfigHeader = true;
             }
-            break;
+            auto it = state.effectPaths.find(et);
+            std::string path = (it != state.effectPaths.end()) ? it->second : "";
+            renderAddButton(et, path);
+            totalVisible++;
         }
 
-        // ReShade effects from default config (filtered)
-        for (const auto& effectType : sortedDefaultConfig)
+        // ReShade effects from default config (filtered) — exclude already-shown current config
+        bool showedDefaultConfigHeader = false;
+        for (const auto& et : sortedDefaultConfig)
         {
-            if (!shouldShow(effectType))
+            if (!shouldShow(et))
                 continue;
-            ImGui::Separator();
-            if (!hasSearch)
-                ImGui::Text("ReShade (all):");
-            for (const auto& et : sortedDefaultConfig)
+            // Skip if already shown in current config
+            if (std::find(sortedCurrentConfig.begin(), sortedCurrentConfig.end(), et) != sortedCurrentConfig.end())
+                continue;
+            if (!showedDefaultConfigHeader)
             {
-                if (shouldShow(et))
-                    continue;
-                // Skip if already shown in current config
-                if (std::find(sortedCurrentConfig.begin(), sortedCurrentConfig.end(), et) != sortedCurrentConfig.end())
-                    continue;
-                auto it = state.effectPaths.find(et);
-                std::string path = (it != state.effectPaths.end()) ? it->second : "";
-                renderAddButton(et, path);
-                totalVisible++;
+                ImGui::Separator();
+                if (!hasSearch)
+                    ImGui::Text("ReShade (all):");
+                showedDefaultConfigHeader = true;
             }
-            break;
+            auto it = state.effectPaths.find(et);
+            std::string path = (it != state.effectPaths.end()) ? it->second : "";
+            renderAddButton(et, path);
+            totalVisible++;
         }
 
         if (totalVisible == 0)
@@ -290,4 +285,4 @@ namespace vkShade
         }
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -12,7 +12,7 @@
 #include "logical_device.hpp"
 
 #include "reshade/effect_module.hpp"
-namespace vkShade
+namespace VKIntox
 {
     VkSampler createSampler(LogicalDevice* pLogicalDevice);
 
@@ -22,6 +22,6 @@ namespace vkShade
 
     void
     convertReshadeFilter(const reshadefx::texture_filter& textureFilter, VkFilter& minFilter, VkFilter& magFilter, VkSamplerMipmapMode& mipmapMode);
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // SAMPLER_HPP_INCLUDED

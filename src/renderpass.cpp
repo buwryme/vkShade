@@ -1,6 +1,6 @@
 #include "renderpass.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkRenderPass createRenderPass(LogicalDevice* pLogicalDevice, VkFormat format, VkImageLayout finalLayout)
     {
@@ -192,4 +192,4 @@ namespace vkShade
 
         return renderPass;
     }
-} // namespace vkShade
+} // namespace VKIntox

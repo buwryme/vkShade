@@ -1,6 +1,6 @@
 #include "effect_transfer.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     TransferEffect::TransferEffect(LogicalDevice*       pLogicalDevice,
                                    VkFormat             format,
@@ -85,4 +85,4 @@ namespace vkShade
     {
     }
 
-} // namespace vkShade
+} // namespace VKIntox

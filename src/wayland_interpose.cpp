@@ -17,7 +17,7 @@
 
 // Forward-declare to avoid pulling in mouse_input_wayland.hpp (which
 // transitively includes mouse_input.hpp → X11 headers in some targets).
-namespace vkShade { void mirrorButtonState(uint32_t button, bool pressed); }
+namespace VKIntox { void mirrorButtonState(uint32_t button, bool pressed); }
 
 #include <wayland-client.h>
 #include <dlfcn.h>
@@ -29,7 +29,7 @@ namespace vkShade { void mirrorButtonState(uint32_t button, bool pressed); }
 #include <algorithm>
 #include <cstdlib>
 
-namespace vkShade
+namespace VKIntox
 {
     namespace
     {
@@ -48,7 +48,7 @@ namespace vkShade
                 handle = dlopen(info.dli_fname, RTLD_NOW | RTLD_GLOBAL);
 
             if (handle)
-                Logger::debug("Wayland interpose: promoted vkShade library to RTLD_GLOBAL");
+                Logger::debug("Wayland interpose: promoted VKIntox library to RTLD_GLOBAL");
         }
     } // namespace
 
@@ -72,7 +72,7 @@ namespace vkShade
         std::lock_guard<std::mutex> lock(proxyMutex);
         return overlayProxies.count(proxy) > 0;
     }
-} // namespace vkShade
+} // namespace VKIntox
 
 // ── Game listener storage ────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ static std::unordered_map<wl_proxy*, GameKeyboardDispatcherData> gameKeyboardDis
 
 static void wp_enter(void* data, wl_pointer* p, uint32_t serial, wl_surface* s, wl_fixed_t x, wl_fixed_t y)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -132,7 +132,7 @@ static void wp_leave(void* data, wl_pointer* p, uint32_t serial, wl_surface* s)
 
 static void wp_motion(void* data, wl_pointer* p, uint32_t time, wl_fixed_t x, wl_fixed_t y)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -144,10 +144,10 @@ static void wp_button(void* data, wl_pointer* p, uint32_t serial, uint32_t time,
 {
     // Always mirror button state to overlay — the game's pointer receives
     // releases via Wayland's implicit grab that our overlay pointer never sees.
-    if (vkShade::isWayland())
-        vkShade::mirrorButtonState(button, state == WL_POINTER_BUTTON_STATE_PRESSED);
+    if (VKIntox::isWayland())
+        VKIntox::mirrorButtonState(button, state == WL_POINTER_BUTTON_STATE_PRESSED);
 
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -157,7 +157,7 @@ static void wp_button(void* data, wl_pointer* p, uint32_t serial, uint32_t time,
 
 static void wp_axis(void* data, wl_pointer* p, uint32_t time, uint32_t axis, wl_fixed_t value)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -167,7 +167,7 @@ static void wp_axis(void* data, wl_pointer* p, uint32_t time, uint32_t axis, wl_
 
 static void wp_frame(void* data, wl_pointer* p)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -177,7 +177,7 @@ static void wp_frame(void* data, wl_pointer* p)
 
 static void wp_axis_source(void* data, wl_pointer* p, uint32_t source)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -187,7 +187,7 @@ static void wp_axis_source(void* data, wl_pointer* p, uint32_t source)
 
 static void wp_axis_stop(void* data, wl_pointer* p, uint32_t time, uint32_t axis)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -197,7 +197,7 @@ static void wp_axis_stop(void* data, wl_pointer* p, uint32_t time, uint32_t axis
 
 static void wp_axis_discrete(void* data, wl_pointer* p, uint32_t axis, int32_t discrete)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -207,7 +207,7 @@ static void wp_axis_discrete(void* data, wl_pointer* p, uint32_t axis, int32_t d
 
 static void wp_axis_value120(void* data, wl_pointer* p, uint32_t axis, int32_t value120)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -217,7 +217,7 @@ static void wp_axis_value120(void* data, wl_pointer* p, uint32_t axis, int32_t v
 
 static void wp_axis_relative_direction(void* data, wl_pointer* p, uint32_t axis, uint32_t direction)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gamePointers.find(p);
@@ -252,7 +252,7 @@ static void wk_keymap(void* data, wl_keyboard* kb, uint32_t format, int32_t fd, 
 
 static void wk_enter(void* data, wl_keyboard* kb, uint32_t serial, wl_surface* s, wl_array* keys)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gameKeyboards.find(kb);
@@ -271,7 +271,7 @@ static void wk_leave(void* data, wl_keyboard* kb, uint32_t serial, wl_surface* s
 
 static void wk_key(void* data, wl_keyboard* kb, uint32_t serial, uint32_t time, uint32_t key, uint32_t state)
 {
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
         return;
     std::lock_guard<std::mutex> lock(gameDataMutex);
     auto it = gameKeyboards.find(kb);
@@ -312,10 +312,10 @@ static int wd_pointer(const void* data, void* target, uint32_t opcode, const str
 {
     auto* proxy = static_cast<wl_proxy*>(target);
 
-    if (opcode == 3 && vkShade::isWayland())
-        vkShade::mirrorButtonState(args[2].u, args[3].u == WL_POINTER_BUTTON_STATE_PRESSED);
+    if (opcode == 3 && VKIntox::isWayland())
+        VKIntox::mirrorButtonState(args[2].u, args[3].u == WL_POINTER_BUTTON_STATE_PRESSED);
 
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
     {
         switch (opcode)
         {
@@ -347,7 +347,7 @@ static int wd_keyboard(const void* data, void* target, uint32_t opcode, const st
 {
     auto* proxy = static_cast<wl_proxy*>(target);
 
-    if (vkShade::isInputBlocked())
+    if (VKIntox::isInputBlocked())
     {
         switch (opcode)
         {
@@ -459,7 +459,7 @@ int wl_proxy_add_listener(struct wl_proxy* proxy,
         return real(proxy, implementation, data);
 
     // Skip overlay-owned proxies — they use their own listeners
-    if (vkShade::isOverlayProxy(proxy))
+    if (VKIntox::isOverlayProxy(proxy))
         return real(proxy, implementation, data);
 
     if (std::strcmp(cls, "wl_pointer") == 0)
@@ -475,7 +475,7 @@ int wl_proxy_add_listener(struct wl_proxy* proxy,
             gamePointers[ptr] = gpd;
         }
 
-        vkShade::Logger::debug("Wayland interpose: wrapped game pointer listener");
+        VKIntox::Logger::debug("Wayland interpose: wrapped game pointer listener");
         return real(proxy, (void (**)(void))&wrapperPointerListener, nullptr);
     }
 
@@ -492,7 +492,7 @@ int wl_proxy_add_listener(struct wl_proxy* proxy,
             gameKeyboards[kb] = gkd;
         }
 
-        vkShade::Logger::debug("Wayland interpose: wrapped game keyboard listener");
+        VKIntox::Logger::debug("Wayland interpose: wrapped game keyboard listener");
         return real(proxy, (void (**)(void))&wrapperKeyboardListener, nullptr);
     }
 
@@ -523,7 +523,7 @@ wl_proxy* wl_proxy_marshal_array_flags(struct wl_proxy* proxy,
     //   5: move
     //   6: resize
     const char* cls = wl_proxy_get_class(proxy);
-    if (vkShade::isInputBlocked() && cls && std::strcmp(cls, "xdg_toplevel") == 0 &&
+    if (VKIntox::isInputBlocked() && cls && std::strcmp(cls, "xdg_toplevel") == 0 &&
         (opcode == 4 || opcode == 5 || opcode == 6))
     {
         return nullptr;
@@ -541,13 +541,13 @@ void* dlsym(void* handle, const char* symbol)
 
     void* resolved = realDlsym(handle, symbol);
 
-    // Keep behavior unchanged unless vkShade is explicitly enabled.
+    // Keep behavior unchanged unless VKIntox is explicitly enabled.
     // Cache the check — this function is called for every dlsym in the process.
-    static const bool vkShadeEnabled = []{
-        const char* e = std::getenv("ENABLE_VKSHADE");
+    static const bool VKIntoxEnabled = []{
+        const char* e = std::getenv("ENABLE_VKINTOX");
         return e && std::strcmp(e, "1") == 0;
     }();
-    if (!vkShadeEnabled || !resolved)
+    if (!VKIntoxEnabled || !resolved)
         return resolved;
 
     bool wantsListener = (std::strcmp(symbol, "wl_proxy_add_listener") == 0);
@@ -592,7 +592,7 @@ int wl_proxy_add_dispatcher(struct wl_proxy* proxy,
         return real(proxy, dispatcher_func, dispatcher_data, data);
 
     // Skip overlay-owned proxies — they use their own dispatchers
-    if (vkShade::isOverlayProxy(proxy))
+    if (VKIntox::isOverlayProxy(proxy))
         return real(proxy, dispatcher_func, dispatcher_data, data);
 
     if (std::strcmp(cls, "wl_pointer") == 0)
@@ -607,7 +607,7 @@ int wl_proxy_add_dispatcher(struct wl_proxy* proxy,
             gamePointerDispatchers[ptr] = gpd;
         }
 
-        vkShade::Logger::debug("Wayland interpose: wrapped game pointer dispatcher");
+        VKIntox::Logger::debug("Wayland interpose: wrapped game pointer dispatcher");
         return real(proxy, wd_pointer, nullptr, data);
     }
 
@@ -623,14 +623,14 @@ int wl_proxy_add_dispatcher(struct wl_proxy* proxy,
             gameKeyboardDispatchers[kb] = gkd;
         }
 
-        vkShade::Logger::debug("Wayland interpose: wrapped game keyboard dispatcher");
+        VKIntox::Logger::debug("Wayland interpose: wrapped game keyboard dispatcher");
         return real(proxy, wd_keyboard, nullptr, data);
     }
 
     return real(proxy, dispatcher_func, dispatcher_data, data);
 }
 
-namespace vkShade
+namespace VKIntox
 {
     void notifyGameKeyboardFocus(bool hasFocus)
     {
@@ -663,4 +663,4 @@ namespace vkShade
                        (hasFocus ? "enter" : "leave") + " sent to " +
                        std::to_string(gameKeyboards.size()) + " game keyboard(s)");
     }
-} // namespace vkShade
+} // namespace VKIntox

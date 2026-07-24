@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     std::vector<VkImageView> createImageViews(LogicalDevice*       pLogicalDevice,
                                               VkFormat             format,

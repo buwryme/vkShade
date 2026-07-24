@@ -2,7 +2,7 @@
 
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     LutCube::LutCube()
     {
@@ -154,4 +154,4 @@ namespace vkShade
         colorCube[locationR + 1] = g;
         colorCube[locationR + 2] = b;
     }
-} // namespace vkShade
+} // namespace VKIntox

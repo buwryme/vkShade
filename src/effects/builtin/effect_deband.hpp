@@ -13,7 +13,7 @@
 #include "../effect_simple.hpp"
 #include "config.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     class DebandEffect : public SimpleEffect
     {
@@ -26,6 +26,6 @@ namespace vkShade
                      Config*              pConfig);
         ~DebandEffect();
     };
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // EFFECT_DEBAND_HPP_INCLUDED

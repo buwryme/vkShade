@@ -6,7 +6,7 @@
 #include <cstring>
 #include <poll.h>
 
-namespace vkShade
+namespace VKIntox
 {
     static wl_display* displayWrapper = nullptr;
     static wl_event_queue* queue = nullptr;
@@ -216,4 +216,4 @@ namespace vkShade
         commonInitialized = false;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

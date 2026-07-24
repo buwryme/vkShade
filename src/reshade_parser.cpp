@@ -19,7 +19,7 @@
 #include "logger.hpp"
 #include "config_serializer.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     namespace
     {
@@ -105,13 +105,13 @@ namespace vkShade
                 "#define tex2DgatherB(s, coords) tex2Dgather(s, coords, 2)\n"
                 "#define tex2DgatherA(s, coords) tex2Dgather(s, coords, 3)\n"
 
-                // vkShade parser compatibility:
+                // VKIntox parser compatibility:
                 // - storage1D token is not recognized by this reshadefx snapshot
                 // - f32tof16/f16tof32 intrinsics are missing
                 "#define storage1D storage\n"
-                "#define f32tof16 _vkshade_f32tof16\n"
-                "#define f16tof32 _vkshade_f16tof32\n"
-                "uint _vkshade_f32tof16(float v) {\n"
+                "#define f32tof16 _vkintox_f32tof16\n"
+                "#define f16tof32 _vkintox_f16tof32\n"
+                "uint _vkintox_f32tof16(float v) {\n"
                 "  uint x = asuint(v);\n"
                 "  uint sign = (x >> 16) & 0x8000u;\n"
                 "  int exp = int((x >> 23) & 0xFFu) - 112;\n"
@@ -120,9 +120,9 @@ namespace vkShade
                 "  if (exp >= 31) return sign | 0x7C00u;\n"
                 "  return sign | (uint(exp) << 10) | ((mant + 0x1000u) >> 13);\n"
                 "}\n"
-                "uint2 _vkshade_f32tof16(float2 v) { return uint2(_vkshade_f32tof16(v.x), _vkshade_f32tof16(v.y)); }\n"
-                "uint4 _vkshade_f32tof16(float4 v) { return uint4(_vkshade_f32tof16(v.x), _vkshade_f32tof16(v.y), _vkshade_f32tof16(v.z), _vkshade_f32tof16(v.w)); }\n"
-                "float _vkshade_f16tof32(uint h) {\n"
+                "uint2 _vkintox_f32tof16(float2 v) { return uint2(_vkintox_f32tof16(v.x), _vkintox_f32tof16(v.y)); }\n"
+                "uint4 _vkintox_f32tof16(float4 v) { return uint4(_vkintox_f32tof16(v.x), _vkintox_f32tof16(v.y), _vkintox_f32tof16(v.z), _vkintox_f32tof16(v.w)); }\n"
+                "float _vkintox_f16tof32(uint h) {\n"
                 "  uint sign = (h & 0x8000u) << 16;\n"
                 "  uint exp = (h >> 10) & 0x1Fu;\n"
                 "  uint mant = h & 0x3FFu;\n"
@@ -130,8 +130,8 @@ namespace vkShade
                 "  if (exp == 31u) return asfloat(sign | 0x7F800000u | (mant << 13));\n"
                 "  return asfloat(sign | ((exp + 112u) << 23) | (mant << 13));\n"
                 "}\n"
-                "float2 _vkshade_f16tof32(uint2 h) { return float2(_vkshade_f16tof32(h.x), _vkshade_f16tof32(h.y)); }\n"
-                "float4 _vkshade_f16tof32(uint4 h) { return float4(_vkshade_f16tof32(h.x), _vkshade_f16tof32(h.y), _vkshade_f16tof32(h.z), _vkshade_f16tof32(h.w)); }\n"
+                "float2 _vkintox_f16tof32(uint2 h) { return float2(_vkintox_f16tof32(h.x), _vkintox_f16tof32(h.y)); }\n"
+                "float4 _vkintox_f16tof32(uint4 h) { return float4(_vkintox_f16tof32(h.x), _vkintox_f16tof32(h.y), _vkintox_f16tof32(h.z), _vkintox_f16tof32(h.w)); }\n"
 
                 // Non-square matrix types — map to matrix<> template syntax
                 "#define float2x3 matrix<float, 2, 3>\n"
@@ -397,7 +397,7 @@ namespace vkShade
         {
             if (spec.name.empty())
                 return true;
-            if (spec.name.rfind("__vkshade_", 0) == 0)
+            if (spec.name.rfind("__vkintox_", 0) == 0)
                 return true;
             if (hasAnnotation(spec.annotations, "source"))
                 return true;
@@ -734,7 +734,7 @@ namespace vkShade
             reshadefx::module module;
             codegen->write_result(module);
 
-            if (const char* dumpPath = std::getenv("VKSHADE_DUMP_SPIRV");
+            if (const char* dumpPath = std::getenv("VKINTOX_DUMP_SPIRV");
                 dumpPath != nullptr && *dumpPath != '\0' && !module.spirv.empty())
             {
                 std::ofstream dump(dumpPath, std::ios::binary);
@@ -976,4 +976,4 @@ namespace vkShade
         return defs;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

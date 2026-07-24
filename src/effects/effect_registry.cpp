@@ -11,7 +11,7 @@
 #include "builtin/builtin_effects.hpp"
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
 
     namespace
@@ -773,4 +773,4 @@ namespace vkShade
                       " effects from config (" + std::to_string(disabledEffects.size()) + " disabled)");
     }
 
-} // namespace vkShade
+} // namespace VKIntox

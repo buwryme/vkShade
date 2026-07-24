@@ -1,5 +1,5 @@
-// Standalone shader compilation tester for vkShade ReShade .fx files.
-// Links against libreshade.a only — no Vulkan, no ImGui, no full vkShade deps.
+// Standalone shader compilation tester for VKIntox ReShade .fx files.
+// Links against libreshade.a only — no Vulkan, no ImGui, no full VKIntox deps.
 //
 // Compile:
 //   g++ -std=c++20 -O2 -I../src -I../src/reshade \
@@ -11,7 +11,7 @@
 //   ./builddir/test_shaders [shader_dir ...]
 //
 // If no directories given, reads include paths from
-// ~/.config/vkShade/shader_manager.conf and tests all .fx files found.
+// ~/.config/VKIntox/shader_manager.conf and tests all .fx files found.
 
 #include <climits>
 #include <cstring>
@@ -132,7 +132,7 @@ static ShaderManagerConfig loadShaderManagerConfig()
     if (!home)
         return config;
 
-    std::string configPath = std::string(home) + "/.config/vkShade/shader_manager.conf";
+    std::string configPath = std::string(home) + "/.config/VKIntox/shader_manager.conf";
     std::ifstream file(configPath);
     if (!file.is_open())
     {
@@ -453,7 +453,7 @@ int main(int argc, char* argv[])
         if (includePaths.empty())
         {
             // Fallback default
-            std::string defaultDir = "/etc/vkShade/reshade/Shaders";
+            std::string defaultDir = "/etc/VKIntox/reshade/Shaders";
             includePaths.push_back(defaultDir);
         }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 # ─── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -29,7 +29,7 @@ check_cmd() {
 # ─── Header ───────────────────────────────────────────────────────────────────
 echo -e "${BLUE}${BOLD}"
 echo "  ╔═══════════════════════════════════════════════════╗"
-echo "  ║           vkShade Setup for Sober                ║"
+echo "  ║           VKIntox Setup for Sober                ║"
 echo "  ╚═══════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -41,6 +41,7 @@ check_cmd "flatpak"
 check_cmd "just"
 check_cmd "curl"
 check_cmd "unzip"
+check_cmd "python3"
 success "All required tools are available"
 
 info "Ensuring Flathub remote is configured..."
@@ -66,8 +67,8 @@ else
     exit 1
 fi
 
-# ─── Build vkShade ───────────────────────────────────────────────────────────
-step "3/4 · Building vkShade"
+# ─── Build VKIntox ───────────────────────────────────────────────────────────
+step "3/4 · Building VKIntox"
 
 info "Running flatpak-build via the Justfile..."
 echo ""
@@ -80,21 +81,22 @@ else
 fi
 
 # ─── Install ReShade Shaders ─────────────────────────────────────────────────
-SHADER_LIST_URL="https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini"
-TEMP_DIR=$(mktemp -d)
-FAILED_PACKAGES=()
+INI_URL="https://raw.githubusercontent.com/crosire/reshade-shaders/list/EffectPackages.ini"
+BASE_TARGET_DIR="$HOME/.var/app/org.vinegarhq.Sober/config/VKIntox/reshade/"
+TARGET_SHADERS="${BASE_TARGET_DIR}/Shaders"
+TARGET_TEXTURES="${BASE_TARGET_DIR}/Textures"
 
 step "4/4 · Installing ReShade shader packages"
 
 # ─── Shader Paths (Sober Flatpak config) ─────────────────────────────────────
-SOBER_CONFIG="$HOME/.var/app/org.vinegarhq.Sober/config/vkShade"
+SOBER_CONFIG="$HOME/.var/app/org.vinegarhq.Sober/config/VKIntox"
 RESHADE_DIR="$SOBER_CONFIG/reshade"
 SHADERS_DIR="$RESHADE_DIR/Shaders"
 TEXTURES_DIR="$RESHADE_DIR/Textures"
 SHADER_MANAGER_CONF="$SOBER_CONFIG/shader_manager.conf"
 
 # ─── Write shader_manager.conf ───────────────────────────────────────────────
-info "Generating vkShade configuration..."
+info "Generating VKIntox configuration..."
 mkdir -p "$(dirname "$SHADER_MANAGER_CONF")"
 echo "parentDir = $RESHADE_DIR/" > "$SHADER_MANAGER_CONF"
 success "Written $SHADER_MANAGER_CONF"
@@ -119,195 +121,153 @@ if [ -f "$SCRIPT_DIR/assets/font/LICENSE" ]; then
     success "Installed font LICENSE to $FONT_DIR"
 fi
 
-info "Fetching shader package list..."
-if ! curl -sL --fail "$SHADER_LIST_URL" -o "$TEMP_DIR/packages.ini"; then
-    error "Failed to fetch shader package list"
-    rm -rf "$TEMP_DIR"
+# ─── Fetch & Install Shaders via Embedded Python ─────────────────────────────
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "${WORK_DIR}"' EXIT
+
+info "Fetching latest package list from GitHub..."
+INI_DATA=$(curl -sSL "${INI_URL}")
+
+if [[ -z "${INI_DATA}" ]]; then
+    error "Failed to fetch EffectPackages.ini"
     exit 1
 fi
 success "Package list downloaded"
 
-total_packages=$(grep -c '^\[' "$TEMP_DIR/packages.ini")
-info "Found $total_packages shader packages to install"
-echo ""
+info "Processing ReShade shader packages..."
 
-# ── Package installer function ────────────────────────────────────────────────
-install_shader_package() {
-    local url="$1"
-    local name="$2"
-    local win_shader_path="$3"
-    local win_texture_path="$4"
-    local idx="$5"
-    local total="$6"
+python3 - "${WORK_DIR}" "${TARGET_SHADERS}" "${TARGET_TEXTURES}" "${INI_DATA}" <<'PYEOF'
+import configparser
+import os
+import sys
+import urllib.request
+import zipfile
+import shutil
 
-    printf "  ${DIM}[%2d/%d] %-52s${NC}" "$idx" "$total" "$name"
+work_dir = sys.argv[1]
+target_shaders_base = sys.argv[2]
+target_textures_base = sys.argv[3]
+ini_text = sys.argv[4]
 
-    # Convert Windows paths (.\reshade-shaders\Shaders\SubDir) to target paths
-    local target_shader_dir=""
-    local target_texture_dir=""
+config = configparser.ConfigParser()
+config.read_string(ini_text)
 
-    if [[ -n "$win_shader_path" ]]; then
-        local rel="${win_shader_path#\\.\\reshade-shaders\\}"
-        rel="${rel//\\//}"
-        if [[ "$rel" == "Shaders" ]]; then
-            target_shader_dir="$SHADERS_DIR"
-        elif [[ "$rel" == Shaders/* ]]; then
-            target_shader_dir="$SHADERS_DIR/${rel#Shaders/}"
-        fi
-    fi
+total_sections = len(config.sections())
+processed = 0
+failed = []
 
-    if [[ -n "$win_texture_path" ]]; then
-        local rel="${win_texture_path#\\.\\reshade-shaders\\}"
-        rel="${rel//\\//}"
-        if [[ "$rel" == "Textures" ]]; then
-            target_texture_dir="$TEXTURES_DIR"
-        elif [[ "$rel" == Textures/* ]]; then
-            target_texture_dir="$TEXTURES_DIR/${rel#Textures/}"
-        fi
-    fi
+for section in config.sections():
+    pkg = config[section]
 
-    # handle when something goes wrong
-    if [[ -z "$target_shader_dir" && -z "$target_texture_dir" ]]; then
-        printf "\r  ${YELLOW}[%2d/%d] %-52s SKIPPED (unmatched path: %s)${NC}\n" \
-            "$idx" "$total" "$name" "${win_shader_path:-$win_texture_path}"
-        FAILED_PACKAGES+=("$name (unmatched install path)")
-        return 1
-    fi
+    pkg_name = pkg.get("PackageName", section)
+    download_url = pkg.get("DownloadUrl", None)
 
-    local pkg_temp="$TEMP_DIR/pkg_${idx}_$RANDOM"
-    mkdir -p "$pkg_temp"
+    if not download_url:
+        continue
 
-    # Download — --fail makes curl return nonzero on HTTP 4xx/5xx instead of
-    # silently saving an error page as the "archive"
-    if ! curl -sL --fail --max-time 120 "$url" -o "$pkg_temp/archive.zip" 2>/dev/null; then
-        printf "\r  ${RED}[%2d/%d] %-52s FAILED (download)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name (download failed)")
-        rm -rf "$pkg_temp"
-        return 1
-    fi
+    processed += 1
+    print(f"\n  [{processed}/{total_sections}] Processing: {pkg_name}")
 
-    # Validate zip
-    if ! unzip -t "$pkg_temp/archive.zip" &>/dev/null; then
-        printf "\r  ${RED}[%2d/%d] %-52s FAILED (invalid zip)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name (invalid zip)")
-        rm -rf "$pkg_temp"
-        return 1
-    fi
+    # parse relative paths
+    raw_install_path = pkg.get("InstallPath", r".\reshade-shaders\Shaders")
+    raw_texture_path = pkg.get("TextureInstallPath", r".\reshade-shaders\Textures")
 
-    # Extract
-    if ! unzip -qo "$pkg_temp/archive.zip" -d "$pkg_temp/src" 2>/dev/null; then
-        printf "\r  ${RED}[%2d/%d] %-52s FAILED (extract)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name (extract failed)")
-        rm -rf "$pkg_temp"
-        return 1
-    fi
+    # normalize paths
+    install_rel = raw_install_path.replace("\\", "/").strip("./").strip("/")
+    texture_rel = raw_texture_path.replace("\\", "/").strip("./").strip("/")
 
-    # Copy shaders (.fx files) — count what actually got copied
-    local copied_shaders=0
-    local copied_textures=0
+    # subfolder mapping
+    sub_shader = install_rel.replace("reshade-shaders/Shaders", "").strip("/")
+    sub_texture = texture_rel.replace("reshade-shaders/Textures", "").strip("/")
 
-    if [[ -n "$target_shader_dir" ]]; then
-        mkdir -p "$target_shader_dir"
-        copied_shaders=$(find "$pkg_temp/src" -name "*.fx" -type f -exec cp -f {} "$target_shader_dir/" \; -print 2>/dev/null | wc -l)
-    fi
+    pkg_target_shaders = os.path.join(target_shaders_base, sub_shader)
+    pkg_target_textures = os.path.join(target_textures_base, sub_texture)
 
-    # Copy textures
-    if [[ -n "$target_texture_dir" ]]; then
-        mkdir -p "$target_texture_dir"
-        copied_textures=$(find "$pkg_temp/src" -type f \( \
-            -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o \
-            -name "*.dds" -o -name "*.tga" -o -name "*.bmp" -o \
-            -name "*.hdr" -o -name "*.exr" \) \
-            -exec cp -f {} "$target_texture_dir/" \; -print 2>/dev/null | wc -l)
-    fi
+    os.makedirs(pkg_target_shaders, exist_ok=True)
+    os.makedirs(pkg_target_textures, exist_ok=True)
 
-    rm -rf "$pkg_temp"
+    # parse file filters
+    effect_files = [f.strip() for f in pkg.get("EffectFiles", "").split(",") if f.strip()]
+    deny_files = [f.strip() for f in pkg.get("DenyEffectFiles", "").split(",") if f.strip()]
 
-    # If we had a target dir but copied nothing, that's a silent failure — surface it
-    if [[ "$copied_shaders" -eq 0 && "$copied_textures" -eq 0 ]]; then
-        printf "\r  ${YELLOW}[%2d/%d] %-52s WARN (0 files found in archive)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name (archive contained no matching files)")
-        return 1
-    fi
+    zip_path = os.path.join(work_dir, f"{section}.zip")
+    extract_dir = os.path.join(work_dir, section)
 
-    printf "\r  ${GREEN}[%2d/%d] %-52s OK (%d shaders, %d textures)${NC}\n" \
-        "$idx" "$total" "$name" "$copied_shaders" "$copied_textures"
-    return 0
-}
+    # download package
+    try:
+        req = urllib.request.Request(
+            download_url,
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req) as resp, open(zip_path, 'wb') as out_file:
+            shutil.copyfileobj(resp, out_file)
+    except Exception as e:
+        print(f"    Failed to download: {e}")
+        failed.append(f"{pkg_name} (download)")
+        continue
 
-# ── Parse INI and install all packages ────────────────────────────────────────
-current_idx=0
-current_url=""
-current_name=""
-current_shader_path=""
-current_texture_path=""
+    # extract zip
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+    except Exception as e:
+        print(f"    Failed to extract archive: {e}")
+        failed.append(f"{pkg_name} (extract)")
+        continue
 
-while IFS= read -r line; do
-    if [[ "$line" =~ ^\[[0-9]+\]$ ]]; then
-        if [[ -n "$current_url" && -n "$current_name" ]]; then
-            ((current_idx++)) || true
-            install_shader_package \
-                "$current_url" \
-                "$current_name" \
-                "$current_shader_path" \
-                "$current_texture_path" \
-                "$current_idx" \
-                "$total_packages" || true
-        fi
-        current_url=""
-        current_name=""
-        current_shader_path=""
-        current_texture_path=""
-    elif [[ "$line" =~ ^PackageName=(.*)$ ]]; then
-        current_name="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^DownloadUrl=(.*)$ ]]; then
-        current_url="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^InstallPath=(.*)$ ]]; then
-        current_shader_path="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^TextureInstallPath=(.*)$ ]]; then
-        current_texture_path="${BASH_REMATCH[1]}"
-    fi
-done < "$TEMP_DIR/packages.ini"
+    # scan extracted content and locate shaders/textures
+    copied_shaders = 0
+    copied_textures = 0
 
-# Process last package
-if [[ -n "$current_url" && -n "$current_name" ]]; then
-    ((current_idx++)) || true
-    install_shader_package \
-        "$current_url" \
-        "$current_name" \
-        "$current_shader_path" \
-        "$current_texture_path" \
-        "$current_idx" \
-        "$total_packages" || true
-fi
+    for root, dirs, files in os.walk(extract_dir):
+        for file in files:
+            file_path = os.path.join(root, file)
 
-# Summary
-echo ""
+            # handle .fx and .fxh files
+            if file.endswith('.fx') or file.endswith('.fxh'):
+                if deny_files and file in deny_files:
+                    continue
+                if effect_files and file not in effect_files and not file.endswith('.fxh'):
+                    continue
+                shutil.copy2(file_path, pkg_target_shaders)
+                copied_shaders += 1
+
+            # handle textures / images / header files embedded in textures
+            elif any(file.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.dds', '.tga', '.bmp']):
+                shutil.copy2(file_path, pkg_target_textures)
+                copied_textures += 1
+
+    if copied_shaders == 0 and copied_textures == 0:
+        print(f"    Warning: No matching files found in archive")
+        failed.append(f"{pkg_name} (empty)")
+    else:
+        print(f"    OK ({copied_shaders} shaders, {copied_textures} textures)")
+
+print()
+if failed:
+    print(f"[!] {len(failed)} package(s) failed:")
+    for f in failed:
+        print(f"    • {f}")
+else:
+    print("[✓] All shader packages processed successfully!")
+PYEOF
+
+# ─── Summary ──────────────────────────────────────────────────────────────────
 shader_count=$(find "$SHADERS_DIR" -name "*.fx" 2>/dev/null | wc -l)
 texture_count=$(find "$TEXTURES_DIR" -type f 2>/dev/null | wc -l)
 
-if [[ ${#FAILED_PACKAGES[@]} -eq 0 ]]; then
-    success "All $total_packages shader packages installed"
-else
-    warn "${#FAILED_PACKAGES[@]} of $total_packages package(s) failed:"
-    for pkg in "${FAILED_PACKAGES[@]}"; do
-        echo -e "    ${DIM}• $pkg${NC}"
-    done
-fi
-info "Installed $shader_count shaders and $texture_count textures"
-
-rm -rf "$TEMP_DIR"
+success "Installed $shader_count shaders and $texture_count textures"
 
 # ─── Configure Sober Override ────────────────────────────────────────────────
 echo ""
-info "Configuring Sober to enable vkShade..."
+info "Configuring Sober to enable VKIntox..."
 
-if flatpak override --user org.vinegarhq.Sober --env=ENABLE_VKSHADE=1 2>/dev/null; then
-    success "Override set: ENABLE_VKSHADE=1"
+if flatpak override --user org.vinegarhq.Sober --env=ENABLE_VKINTOX=1 2>/dev/null; then
+    success "Override set: ENABLE_VKINTOX=1"
 else
     warn "Could not set override — Sober may not be installed yet"
     warn "You can set it manually after installing Sober:"
-    echo -e "    ${DIM}flatpak override --user org.vinegarhq.Sober --env=ENABLE_VKSHADE=1${NC}"
+    echo -e "    ${DIM}flatpak override --user org.vinegarhq.Sober --env=ENABLE_VKINTOX=1${NC}"
 fi
 
 # ─── Done ────────────────────────────────────────────────────────────────────
@@ -317,7 +277,7 @@ echo "  ╔═══════════════════════
 echo "  ║              Setup Complete!                      ║"
 echo "  ╚═══════════════════════════════════════════════════╝"
 echo -e "${NC}"
-echo -e "  ${DIM}vkShade is now configured for Sober.${NC}"
+echo -e "  ${DIM}VKIntox is now configured for Sober.${NC}"
 echo -e "  ${DIM}Launch Sober to start using Vulkan shaders.${NC}"
 echo ""
 echo -e "  ${CYAN}Shaders:                ${NC} ${DIM}$SHADERS_DIR${NC}"

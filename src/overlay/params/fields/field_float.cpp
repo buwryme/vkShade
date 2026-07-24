@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-namespace vkShade
+namespace VKIntox
 {
     // Robust float field editor with custom value input via right-click
     // Uses deferred modal opening to avoid ImGui nested-popup issues
@@ -120,4 +120,4 @@ namespace vkShade
 
     REGISTER_FIELD_EDITOR(ParamType::Float, FloatFieldEditor)
 
-} // namespace vkShade
+} // namespace VKIntox

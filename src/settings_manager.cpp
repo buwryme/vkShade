@@ -1,7 +1,7 @@
 #include "settings_manager.hpp"
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Global instance
     SettingsManager settingsManager;
@@ -26,4 +26,4 @@ namespace vkShade
         return success;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkDescriptorPool createDescriptorPool(LogicalDevice* pLogicalDevice, const std::vector<VkDescriptorPoolSize>& poolSizes);
 
@@ -37,6 +37,6 @@ namespace vkShade
                                                                             VkDescriptorSetLayout                 descriptorSetLayout,
                                                                             std::vector<VkSampler>                samplers,
                                                                             std::vector<std::vector<VkImageView>> imageViewsVectors);
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // DESCRIPTOR_SET_HPP_INCLUDED

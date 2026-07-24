@@ -5,7 +5,7 @@
 #include <sstream>
 #include <vector>
 
-namespace vkShade
+namespace VKIntox
 {
     void addUniqueCString(std::vector<const char*>& stringVector, const char* addString);
 
@@ -32,6 +32,6 @@ namespace vkShade
         ss << object;
         return ss.str();
     }
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // UTIL_HPP_INCLUDED

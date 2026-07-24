@@ -13,7 +13,7 @@
 
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     DlsEffect::DlsEffect(LogicalDevice*       pLogicalDevice,
                          VkFormat             format,
@@ -52,4 +52,4 @@ namespace vkShade
     DlsEffect::~DlsEffect()
     {
     }
-} // namespace vkShade
+} // namespace VKIntox

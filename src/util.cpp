@@ -3,7 +3,7 @@
 #include <iostream>
 #include <unistd.h>
 
-namespace vkShade
+namespace VKIntox
 {
     void addUniqueCString(std::vector<const char*>& stringVector, const char* addString)
     {
@@ -63,4 +63,4 @@ namespace vkShade
             std::cout << "\033[" << magicString << "m" << output << "\033[0m" << std::endl;
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

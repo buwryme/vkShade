@@ -20,18 +20,18 @@
 #include "imgui/imgui_internal.h"
 #include "imgui/backends/imgui_impl_vulkan.h"
 
-namespace vkShade
+namespace VKIntox
 {
-    // No-op dummy for Vulkan functions ImGui requests but vkShade doesn't intercept.
+    // No-op dummy for Vulkan functions ImGui requests but VKIntox doesn't intercept.
     // ImGui's LoadFunctions treats nullptr returns as failures, so we need a valid pointer.
     static void VKAPI_CALL dummyVulkanFunc() {}
 
-    // Function loader using vkShade's dispatch tables
+    // Function loader using VKIntox's dispatch tables
     static PFN_vkVoidFunction imguiVulkanLoaderDummy(const char* function_name, void* user_data)
     {
         LogicalDevice* device = static_cast<LogicalDevice*>(user_data);
 
-        // Device functions from vkShade's dispatch table
+        // Device functions from VKIntox's dispatch table
         #define CHECK_FUNC(name) if (strcmp(function_name, "vk" #name) == 0) return (PFN_vkVoidFunction)device->vkd.name
 
         CHECK_FUNC(AllocateCommandBuffers);
@@ -102,7 +102,7 @@ namespace vkShade
 
         #undef CHECK_FUNC
 
-        // Instance functions from vkShade's dispatch
+        // Instance functions from VKIntox's dispatch
         #define CHECK_IFUNC(name) if (strcmp(function_name, "vk" #name) == 0) return (PFN_vkVoidFunction)device->vki.name
         CHECK_IFUNC(GetPhysicalDeviceMemoryProperties);
         CHECK_IFUNC(GetPhysicalDeviceProperties);
@@ -473,7 +473,7 @@ namespace vkShade
 
     void ImGuiOverlay::initVulkanBackend(VkFormat swapchainFormat, uint32_t imageCount)
     {
-        // Load Vulkan functions for ImGui using vkShade's dispatch tables
+        // Load Vulkan functions for ImGui using VKIntox's dispatch tables
         bool loaded = ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, imguiVulkanLoaderDummy, pLogicalDevice);
         if (!loaded)
         {
@@ -803,7 +803,7 @@ namespace vkShade
         // Do NOT draw a software cursor — it trails behind the real cursor and
         // leaves ghost artefacts on frames where the overlay is active.
         // The OS cursor (or compositor cursor on Wayland) is always visible
-        // because vkShade sets inputBlocked=false when the overlay is hidden.
+        // because VKIntox sets inputBlocked=false when the overlay is hidden.
         io.MouseDrawCursor = true;
 
         // Keyboard input for text fields
@@ -842,7 +842,7 @@ namespace vkShade
             ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
         }
 
-        ImGui::Begin("vkShade Overlay", nullptr, ImGuiWindowFlags_NoCollapse);
+        ImGui::Begin("VKIntox Overlay", nullptr, ImGuiWindowFlags_NoCollapse);
 
         // Clamp position after the window is created (prevents dragging offscreen)
         ImVec2 winPos = ImGui::GetWindowPos();
@@ -904,7 +904,7 @@ namespace vkShade
             ImGui::EndTabBar();
         }
 
-        ImGui::End();  // vkShade Overlay
+        ImGui::End();  // VKIntox Overlay
 
         // Debug window (separate, controlled by setting)
         renderDebugWindow();
@@ -962,4 +962,4 @@ namespace vkShade
         return cmd;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

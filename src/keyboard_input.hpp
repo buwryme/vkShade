@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace vkShade
+namespace VKIntox
 {
     struct KeyboardState
     {
@@ -22,4 +22,4 @@ namespace vkShade
     void beginKeyboardInputFrame();
     bool     isKeyPressed(uint32_t ks);
     KeyboardState getKeyboardState();
-} // namespace vkShade
+} // namespace VKIntox

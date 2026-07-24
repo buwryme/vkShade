@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <cstdlib>
 
-namespace vkShade
+namespace VKIntox
 {
     /*
        reads .cube files
@@ -60,5 +60,5 @@ namespace vkShade
         std::string skipWhiteSpace(std::string text);
     };
 
-} // namespace vkShade
+} // namespace VKIntox
 #endif // LUT_CUBE_HPP_INCLUDED

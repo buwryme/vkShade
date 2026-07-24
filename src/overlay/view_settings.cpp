@@ -8,7 +8,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     void ImGuiOverlay::renderSettingsView(const KeyboardState& keyboard)
     {
@@ -189,4 +189,4 @@ namespace vkShade
         ImGui::EndChild();
     }
 
-} // namespace vkShade
+} // namespace VKIntox

@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkPipelineLayout createGraphicsPipelineLayout(LogicalDevice* pLogicalDevice, 
                                                    std::vector<VkDescriptorSetLayout> descriptorSetLayouts,
@@ -29,6 +29,6 @@ namespace vkShade
                                       VkPipelineLayout      pipelineLayout,
                                       bool                  flip = false);
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // GRAPHICS_PIPELINE_HPP_INCLUDED

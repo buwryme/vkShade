@@ -1,13 +1,13 @@
-#ifndef VKSHADE_RESHADE_DEPTH_MACROS_HPP_INCLUDED
-#define VKSHADE_RESHADE_DEPTH_MACROS_HPP_INCLUDED
+#ifndef VKINTOX_RESHADE_DEPTH_MACROS_HPP_INCLUDED
+#define VKINTOX_RESHADE_DEPTH_MACROS_HPP_INCLUDED
 
 #include "reshade/effect_preprocessor.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Add ReShade preprocessor macros for depth buffer handling.
     // These macros tell ReShade effects how to interpret the depth values
-    // that vkShade passes to them. Proper configuration is critical for
+    // that VKIntox passes to them. Proper configuration is critical for
     // flawless depth-based effect rendering (DOF, SSAO, etc.)
     //
     // Parameters:
@@ -109,10 +109,10 @@ namespace vkShade
 
         // Mix stage depth map flag
         // 0 = don't mix, 1 = blend with existing depth
-        // For vkShade's resolved depth, we always provide clean depth
+        // For VKIntox's resolved depth, we always provide clean depth
         pp.add_macro_definition("RESHADE_MIX_STAGE_DEPTH_MAP", "0");
     }
 
-} // namespace vkShade
+} // namespace VKIntox
 
-#endif // VKSHADE_RESHADE_DEPTH_MACROS_HPP_INCLUDED
+#endif // VKINTOX_RESHADE_DEPTH_MACROS_HPP_INCLUDED

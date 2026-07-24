@@ -8,7 +8,7 @@
 #include "settings_manager.hpp"
 #include "util.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     static bool hasDepthResolveResources(const LogicalSwapchain* pLogicalSwapchain, size_t commandBufferCount)
     {
@@ -332,7 +332,7 @@ namespace vkShade
     }
     void writeCommandBuffers(LogicalDevice*                                 pLogicalDevice,
                              LogicalSwapchain*                              pLogicalSwapchain,
-                             std::vector<std::shared_ptr<vkShade::Effect>> effects,
+                             std::vector<std::shared_ptr<VKIntox::Effect>> effects,
                              std::vector<VkCommandBuffer>                   commandBuffers,
                              const DepthState&                              depthState)
     {
@@ -851,4 +851,4 @@ namespace vkShade
         return semaphores;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

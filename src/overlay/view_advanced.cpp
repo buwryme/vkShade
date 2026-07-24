@@ -8,7 +8,7 @@
 
 #include "imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     // Dirty flag for deferred saving — avoids blocking the UI thread with
     // synchronous disk I/O on every single checkbox/radio/combo change.
@@ -122,7 +122,7 @@ namespace vkShade
             else
             {
                 // Pinned view was destroyed since last frame — clear the stale pin
-                // so we fall back to auto.  getDepthState() in vkshade.cpp does the
+                // so we fall back to auto.  getDepthState() in vkintox.cpp does the
                 // same check, but we need it here too so the UI is consistent.
                 Logger::debug("gatherDepthInfo: pinned view no longer tracked, clearing stale pin");
                 pLogicalDevice->pinnedDepthImageView = VK_NULL_HANDLE;
@@ -608,4 +608,4 @@ namespace vkShade
         ImGui::EndChild();
     }
 
-} // namespace vkShade
+} // namespace VKIntox

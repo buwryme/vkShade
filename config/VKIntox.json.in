@@ -1,0 +1,21 @@
+{
+  "file_format_version" : "1.0.0",
+  "layer" : {
+    "name": "VK_LAYER_VKINTOX_post_processing",
+    "type": "GLOBAL",
+    "library_path": "@layer_library_path@",
+    "api_version": "1.3.223",
+    "implementation_version": "1",
+    "description": "a post processing layer with overlay UI",
+    "functions": {
+      "vkGetInstanceProcAddr": "VKIntox_GetInstanceProcAddr",
+      "vkGetDeviceProcAddr":   "VKIntox_GetDeviceProcAddr"
+    },
+    "enable_environment": {
+      "ENABLE_VKINTOX": "1"
+    },
+    "disable_environment": {
+      "DISABLE_VKINTOX": "1"
+    }
+  }
+}

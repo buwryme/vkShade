@@ -1,6 +1,6 @@
 #pragma once
 
-namespace vkShade
+namespace VKIntox
 {
     // Call once at startup with config value
     void initInputBlocker(bool enabled);

@@ -1,6 +1,6 @@
 #pragma once
 
-namespace vkShade
+namespace VKIntox
 {
     // Initialize pointer constraints from the Wayland registry.
     // Requires initWaylandInputCommon() to have been called first.
@@ -17,4 +17,4 @@ namespace vkShade
     // Clean up pointer constraints resources.
     void cleanupPointerConstraints();
 
-} // namespace vkShade
+} // namespace VKIntox

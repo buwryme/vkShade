@@ -10,7 +10,7 @@
 
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Thread-safe RNG (avoids std::rand() which is not thread-safe)
     static thread_local std::mt19937 tlRng{std::random_device{}()};
@@ -406,4 +406,4 @@ namespace vkShade
     DepthUniform::~DepthUniform()
     {
     }
-} // namespace vkShade
+} // namespace VKIntox

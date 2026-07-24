@@ -1,6 +1,6 @@
 #include "format.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkFormat convertToSRGB(VkFormat format)
     {
@@ -144,4 +144,4 @@ namespace vkShade
             default: return false;
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

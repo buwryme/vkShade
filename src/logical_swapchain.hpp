@@ -13,7 +13,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     class Config;
 
@@ -83,6 +83,6 @@ namespace vkShade
         void destroy();
         void reloadEffects(Config* pConfig);
     };
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // LOGICAL_SWAPCHAIN_HPP_INCLUDED

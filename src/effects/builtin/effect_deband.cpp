@@ -13,7 +13,7 @@
 
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     DebandEffect::DebandEffect(LogicalDevice*       pLogicalDevice,
                                VkFormat             format,
@@ -72,4 +72,4 @@ namespace vkShade
     DebandEffect::~DebandEffect()
     {
     }
-} // namespace vkShade
+} // namespace VKIntox

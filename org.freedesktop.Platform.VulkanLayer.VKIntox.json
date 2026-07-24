@@ -1,5 +1,5 @@
 {
-  "id": "org.freedesktop.Platform.VulkanLayer.vkShade",
+  "id": "org.freedesktop.Platform.VulkanLayer.VKIntox",
   "branch": "25.08",
   "runtime": "org.freedesktop.Platform",
   "runtime-version": "25.08",
@@ -22,22 +22,22 @@
       ]
     },
     {
-      "name": "vkshade",
+      "name": "vkintox",
       "buildsystem": "meson",
       "build-options": {
-        "prepend-pkg-config-path": "/usr/lib/extensions/vulkan/vkShade/lib/pkgconfig",
+        "prepend-pkg-config-path": "/usr/lib/extensions/vulkan/VKIntox/lib/pkgconfig",
         "env": {
-          "CPPFLAGS": "-I/usr/lib/extensions/vulkan/vkShade/include"
+          "CPPFLAGS": "-I/usr/lib/extensions/vulkan/VKIntox/include"
         }
       },
       "config-opts": [
         "--buildtype=release",
-        "--prefix=/usr/lib/extensions/vulkan/vkShade",
-        "--libdir=/usr/lib/extensions/vulkan/vkShade/lib",
-        "-Dappend_libdir_vkshade=false",
+        "--prefix=/usr/lib/extensions/vulkan/VKIntox",
+        "--libdir=/usr/lib/extensions/vulkan/VKIntox/lib",
+        "-Dappend_libdir_vkintox=false",
         "-Dwith_so=true",
         "-Dwith_json=true",
-        "-Dcpp_args=-I/usr/lib/extensions/vulkan/vkShade/include"
+        "-Dcpp_args=-I/usr/lib/extensions/vulkan/VKIntox/include"
       ],
       "sources": [
         {

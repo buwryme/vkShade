@@ -7,7 +7,7 @@
 
 #include "effects/effect_config.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Serialized parameter format for config files
     struct ConfigParam
@@ -17,7 +17,7 @@ namespace vkShade
         std::string value;
     };
 
-    // Global vkShade settings (from vkShade.conf)
+    // Global VKIntox settings (from VKIntox.conf)
     struct VkBasaltSettings
     {
         int maxEffects = 10;
@@ -39,7 +39,7 @@ namespace vkShade
         // using the best-candidate heuristic. "" = auto-promotion.
         std::string depthManualPin;
         // Workaround for transient multisampled depth attachments (Advanced tab).
-        // When true, vkShade injects its own depth resolve attachment so the
+        // When true, VKIntox injects its own depth resolve attachment so the
         // resolved depth survives past the render pass for effects to sample.
         bool depthTransientWorkaround = false;
         // Depth capture method for persistent storage path (Advanced tab).
@@ -81,7 +81,7 @@ namespace vkShade
     class ConfigSerializer
     {
     public:
-        // Save a game-specific config to ~/.config/vkShade/configs/<name>.conf
+        // Save a game-specific config to ~/.config/VKIntox/configs/<name>.conf
         // effects: all effects in the list (enabled + disabled)
         // disabledEffects: effects that are unchecked (won't be rendered)
         // params: all effect parameters
@@ -95,10 +95,10 @@ namespace vkShade
             const std::map<std::string, std::string>& effectPaths = {},
             const std::vector<PreprocessorDefinition>& preprocessorDefs = {});
 
-        // Get the base config directory path (~/.config/vkShade/)
+        // Get the base config directory path (~/.config/VKIntox/)
         static std::string getBaseConfigDir();
 
-        // Get the configs directory path (~/.config/vkShade/configs/)
+        // Get the configs directory path (~/.config/VKIntox/configs/)
         static std::string getConfigsDir();
 
         // List available config files
@@ -112,7 +112,7 @@ namespace vkShade
         static std::string getDefaultConfig();
         static std::string getDefaultConfigPath();
 
-        // Global settings management (vkShade.conf)
+        // Global settings management (VKIntox.conf)
         static VkBasaltSettings loadSettings();
         static bool saveSettings(const VkBasaltSettings& settings);
 
@@ -120,7 +120,7 @@ namespace vkShade
         static ShaderManagerConfig loadShaderManagerConfig();
         static bool saveShaderManagerConfig(const ShaderManagerConfig& config);
 
-        // Ensure vkShade.conf exists with defaults (call early at startup)
+        // Ensure VKIntox.conf exists with defaults (call early at startup)
         static void ensureConfigExists();
 
         // Detect the game executable name from /proc/self/exe
@@ -173,6 +173,6 @@ namespace vkShade
             const ProfileSettings& profileSettings = {});
     };
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // CONFIG_SERIALIZER_HPP_INCLUDED

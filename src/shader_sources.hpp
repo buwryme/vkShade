@@ -3,7 +3,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace vkShade
+namespace VKIntox
 {
     const std::vector<uint32_t> cas_frag = {
 #include "cas.frag.h"
@@ -89,4 +89,4 @@ namespace vkShade
     const std::vector<uint32_t> smaa_neighbor_vert = {
 #include "smaa_neighbor.vert.h"
     };
-} // namespace vkShade
+} // namespace VKIntox

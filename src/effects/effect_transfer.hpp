@@ -15,7 +15,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     class TransferEffect : public Effect
     {
@@ -37,5 +37,5 @@ namespace vkShade
         VkFormat             format;
         Config*              pConfig;
     };
-} // namespace vkShade
+} // namespace VKIntox
 #endif // EFFECT_TRANSFER_HPP_INCLUDED

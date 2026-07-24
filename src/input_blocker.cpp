@@ -5,7 +5,7 @@
 
 #include <atomic>
 
-namespace vkShade
+namespace VKIntox
 {
     static std::atomic<bool> blockingEnabled{false};
     // Atomic: written by overlay thread (setInputBlocked), read by game thread

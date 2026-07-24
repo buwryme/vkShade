@@ -11,7 +11,7 @@
 
 #include "logical_device.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Returns a matching sRGB format to a UNORM format if it exist, else returns format
     VkFormat convertToSRGB(VkFormat format);
@@ -33,6 +33,6 @@ namespace vkShade
     bool isDepthFormat(VkFormat format);
 
     bool isStencilFormat(VkFormat format);
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // FORMAT_HPP_INCLUDED

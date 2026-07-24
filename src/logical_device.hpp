@@ -12,11 +12,11 @@
 #include "vkdispatch.hpp"
 #include <mutex>
 
-namespace vkShade
+namespace VKIntox
 {
     struct LogicalSwapchain;  // Forward declaration
 
-    // Global lock guarding all layer state (defined in vkshade.cpp). Shared with
+    // Global lock guarding all layer state (defined in vkintox.cpp). Shared with
     // the overlay so it can read LogicalDevice state for the Advanced tab.
     extern std::mutex globalLock;
 
@@ -171,6 +171,6 @@ namespace vkShade
         // ImGui overlay - lives at device level to survive swapchain recreation
         std::unique_ptr<ImGuiOverlay> imguiOverlay;
     };
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // LOGICAL_DEVICE_HPP_INCLUDED

@@ -4,7 +4,7 @@
 #include <string>
 #include "keyboard_input.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     uint32_t convertToKeySymX11(std::string key);
     void beginKeyboardInputFrameX11();
@@ -13,4 +13,4 @@ namespace vkShade
 
     // For input blocking - returns the keyboard display connection
     void* getKeyboardDisplay();
-} // namespace vkShade
+} // namespace VKIntox

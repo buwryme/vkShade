@@ -18,7 +18,7 @@
 
 #include "shader_sources.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     LutEffect::LutEffect(LogicalDevice*       pLogicalDevice,
                          VkFormat             format,
@@ -141,4 +141,4 @@ namespace vkShade
             commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1, 1, &(lutDescriptorSet), 0, nullptr);
         SimpleEffect::applyEffect(imageIndex, commandBuffer);
     }
-} // namespace vkShade
+} // namespace VKIntox

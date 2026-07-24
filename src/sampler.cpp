@@ -1,6 +1,6 @@
 #include "sampler.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     VkSampler createSampler(LogicalDevice* pLogicalDevice)
     {
@@ -124,4 +124,4 @@ namespace vkShade
                 return;
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

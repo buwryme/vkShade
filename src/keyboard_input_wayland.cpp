@@ -13,7 +13,7 @@
 #include <sys/mman.h>
 #include <unordered_set>
 
-namespace vkShade
+namespace VKIntox
 {
     // Keyboard-specific state (seat/queue come from wayland_input_common)
     static wl_keyboard* wlKeyboard = nullptr;
@@ -353,4 +353,4 @@ namespace vkShade
 
         return state;
     }
-} // namespace vkShade
+} // namespace VKIntox

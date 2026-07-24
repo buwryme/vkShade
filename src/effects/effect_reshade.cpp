@@ -30,7 +30,7 @@
 #include "stb_image_dds.h"
 #include "stb_image_resize.h"
 
-namespace vkShade
+namespace VKIntox
 {
     namespace
     {
@@ -53,7 +53,7 @@ namespace vkShade
         bool getLocalSizeIdEnabledOverride(bool& hasOverride, bool defaultValue)
         {
             hasOverride = false;
-            const char* value = std::getenv("VKSHADE_ENABLE_LOCAL_SIZE_ID");
+            const char* value = std::getenv("VKINTOX_ENABLE_LOCAL_SIZE_ID");
             if (value == nullptr || *value == '\0')
                 return defaultValue;
 
@@ -63,7 +63,7 @@ namespace vkShade
             if (value[0] == '1')
                 return true;
 
-            Logger::warn(std::string("Invalid VKSHADE_ENABLE_LOCAL_SIZE_ID value '") + value +
+            Logger::warn(std::string("Invalid VKINTOX_ENABLE_LOCAL_SIZE_ID value '") + value +
                          "'. Expected 0 or 1.");
             return defaultValue;
         }
@@ -90,7 +90,7 @@ namespace vkShade
 
         bool isReshadeUniformLogEnabled()
         {
-            const char* value = std::getenv("VKSHADE_DEBUG_LOG_RESHADE_UI_UNIFORMS");
+            const char* value = std::getenv("VKINTOX_DEBUG_LOG_RESHADE_UI_UNIFORMS");
             if (value == nullptr || *value == '\0')
                 return false;
             return value[0] != '0';
@@ -1620,8 +1620,8 @@ namespace vkShade
             // Skip if no name (can't be configured)
             if (spec.name.empty())
                 continue;
-            // Skip vkShade-internal runtime specialization constants.
-            if (spec.name.rfind("__vkshade_", 0) == 0)
+            // Skip VKIntox-internal runtime specialization constants.
+            if (spec.name.rfind("__vkintox_", 0) == 0)
                 continue;
 
             // Get common annotations
@@ -1888,9 +1888,9 @@ namespace vkShade
             "#define tex2DgatherB(s, coords) tex2Dgather(s, coords, 2)\n"
             "#define tex2DgatherA(s, coords) tex2Dgather(s, coords, 3)\n"
             "#define storage1D storage\n"
-            "#define f32tof16 _vkshade_f32tof16\n"
-            "#define f16tof32 _vkshade_f16tof32\n"
-            "uint _vkshade_f32tof16(float v) {\n"
+            "#define f32tof16 _vkintox_f32tof16\n"
+            "#define f16tof32 _vkintox_f16tof32\n"
+            "uint _vkintox_f32tof16(float v) {\n"
             "  uint x = asuint(v);\n"
             "  uint sign = (x >> 16) & 0x8000u;\n"
             "  uint exp = (x >> 23) & 0xFFu;\n"
@@ -1928,10 +1928,10 @@ namespace vkShade
             "  }\n"
             "  return sign | halfExp | (halfMant & 0x03FFu);\n"
             "}\n"
-            "uint2 _vkshade_f32tof16(float2 v) { return uint2(_vkshade_f32tof16(v.x), _vkshade_f32tof16(v.y)); }\n"
-            "uint3 _vkshade_f32tof16(float3 v) { return uint3(_vkshade_f32tof16(v.x), _vkshade_f32tof16(v.y), _vkshade_f32tof16(v.z)); }\n"
-            "uint4 _vkshade_f32tof16(float4 v) { return uint4(_vkshade_f32tof16(v.x), _vkshade_f32tof16(v.y), _vkshade_f32tof16(v.z), _vkshade_f32tof16(v.w)); }\n"
-            "float _vkshade_f16tof32(uint h) {\n"
+            "uint2 _vkintox_f32tof16(float2 v) { return uint2(_vkintox_f32tof16(v.x), _vkintox_f32tof16(v.y)); }\n"
+            "uint3 _vkintox_f32tof16(float3 v) { return uint3(_vkintox_f32tof16(v.x), _vkintox_f32tof16(v.y), _vkintox_f32tof16(v.z)); }\n"
+            "uint4 _vkintox_f32tof16(float4 v) { return uint4(_vkintox_f32tof16(v.x), _vkintox_f32tof16(v.y), _vkintox_f32tof16(v.z), _vkintox_f32tof16(v.w)); }\n"
+            "float _vkintox_f16tof32(uint h) {\n"
             "  uint sign = (h & 0x8000u) << 16;\n"
             "  uint exp = (h >> 10) & 0x1Fu;\n"
             "  uint mant = h & 0x03FFu;\n"
@@ -1946,9 +1946,9 @@ namespace vkShade
             "  if (exp == 0x1Fu) return asfloat(sign | 0x7F800000u | (mant << 13));\n"
             "  return asfloat(sign | ((exp + 112u) << 23) | (mant << 13));\n"
             "}\n"
-            "float2 _vkshade_f16tof32(uint2 h) { return float2(_vkshade_f16tof32(h.x), _vkshade_f16tof32(h.y)); }\n"
-            "float3 _vkshade_f16tof32(uint3 h) { return float3(_vkshade_f16tof32(h.x), _vkshade_f16tof32(h.y), _vkshade_f16tof32(h.z)); }\n"
-            "float4 _vkshade_f16tof32(uint4 h) { return float4(_vkshade_f16tof32(h.x), _vkshade_f16tof32(h.y), _vkshade_f16tof32(h.z), _vkshade_f16tof32(h.w)); }\n"
+            "float2 _vkintox_f16tof32(uint2 h) { return float2(_vkintox_f16tof32(h.x), _vkintox_f16tof32(h.y)); }\n"
+            "float3 _vkintox_f16tof32(uint3 h) { return float3(_vkintox_f16tof32(h.x), _vkintox_f16tof32(h.y), _vkintox_f16tof32(h.z)); }\n"
+            "float4 _vkintox_f16tof32(uint4 h) { return float4(_vkintox_f16tof32(h.x), _vkintox_f16tof32(h.y), _vkintox_f16tof32(h.z), _vkintox_f16tof32(h.w)); }\n"
             "#define float2x3 matrix<float, 2, 3>\n"
             "#define float2x4 matrix<float, 2, 4>\n"
             "#define float3x2 matrix<float, 3, 2>\n"
@@ -2161,4 +2161,4 @@ namespace vkShade
             default: return VK_BLEND_FACTOR_ZERO;
         }
     }
-} // namespace vkShade
+} // namespace VKIntox

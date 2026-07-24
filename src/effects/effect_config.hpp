@@ -8,7 +8,7 @@
 
 #include "params/effect_param.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     enum class EffectType
     {
@@ -40,6 +40,6 @@ namespace vkShade
         bool hasFailed() const { return !compileError.empty(); }
     };
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // EFFECT_CONFIG_HPP_INCLUDED

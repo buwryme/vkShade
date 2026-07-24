@@ -1,7 +1,7 @@
 #include "field_editor.hpp"
 #include "../../imgui/imgui.h"
 
-namespace vkShade
+namespace VKIntox
 {
     FieldEditorFactory& FieldEditorFactory::instance()
     {
@@ -44,4 +44,4 @@ namespace vkShade
         return changed;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

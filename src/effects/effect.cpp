@@ -1,6 +1,6 @@
 #include "effect.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
 
 }

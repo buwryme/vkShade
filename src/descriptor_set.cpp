@@ -1,7 +1,7 @@
 #include "descriptor_set.hpp"
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
 
     VkDescriptorPool createDescriptorPool(LogicalDevice* pLogicalDevice, const std::vector<VkDescriptorPoolSize>& poolSizes)
@@ -218,4 +218,4 @@ namespace vkShade
             std::move(imageViewsVectors),
             std::vector<VkDescriptorType>(bindingCount, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
-} // namespace vkShade
+} // namespace VKIntox

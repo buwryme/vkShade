@@ -1,6 +1,6 @@
 #include "image_view.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     std::vector<VkImageView> createImageViews(LogicalDevice*       pLogicalDevice,
                                               VkFormat             format,
@@ -40,4 +40,4 @@ namespace vkShade
         return imageViews;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

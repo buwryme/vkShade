@@ -1,9 +1,9 @@
-# vkShade
+# VKIntox
 
 [![License](https://img.shields.io/badge/license-zlib-green)](./LICENSE)
 [![NixOS](https://img.shields.io/badge/NixOS-unstable-78C0E8?logo=nixos&logoColor=white)](https://nixos.org)
 
-A Flatpak/Sober-first fork of vkShade which also adds:
+A Flatpak/Sober-first fork of **vkShade** which also adds:
 - Parallel depth buffer tracking
 - Automatic preference of depth buffers that match the current window size
 - More resolve ways to handle depth buffers
@@ -24,14 +24,14 @@ To set it up for Sober, run `./setup_sober.sh`
 
 **Use at your own risk**: 
 - unstable shaders or extreme GPU load can still crash or freeze games.
-- vkShade is driver-level but can still get you moderated
+- VKIntox is driver-level but can still get you moderated
 - this is a very experimental project that has yet to improve.
 
-The codebase needs a lot of work and removage of extra unneeded features slobodaapl/vkShade bundles in...
+The codebase needs a lot of work and removage of extra unneeded features slobodaapl/**vkShade** bundles in...
 
 ## Features
 
-The base project required editing config files and restarting. vkShade adds:
+The base project required editing config files and restarting. VKIntox adds:
 
 - **In-game overlay** (`Home` key) with dockable/undockable tab windows
 - **Add/remove/reorder effects** without restart (drag to reorder)
@@ -65,6 +65,8 @@ The layer automatically picks a depth buffer that fits the game window, which in
 
 The `setup_sober.sh` script fetches all ReShade shaders and sets them up for you.
 
+**Requirements for shader installation:** `python3`, `curl`, `unzip` (all checked by the setup script).
+
 ## Usage
 
 The `setup_sober.sh` script:
@@ -73,7 +75,7 @@ The `setup_sober.sh` script:
 - Installs it as a local Flatpak repo and Vulkan Layer extension
 - Deploys shader manager configurations and all ReShade shaders
 
-Please open an issue if **anything** goes wrong, as long as it is indefinitely vkShade's fault.
+Please open an issue if **anything** goes wrong, as long as it is indefinitely **vkShade**'s fault.
 
 ### Key Bindings
 
@@ -84,6 +86,6 @@ Please open an issue if **anything** goes wrong, as long as it is indefinitely v
 | Toggle Overlay | `Home` | Show/hide the overlay GUI |
 
 ### Special Thanks To
-slobodaapl, for making vkShade which is the direct source code reprise of this project
+slobodaapl, for making **vkShade** which is the direct source code reprise of this project
 
-DadSchoorse, for making vkBasalt, which the original vkShade is based on
+DadSchoorse, for making vkBasalt, which the original **vkShade** is based on

@@ -1,7 +1,7 @@
 #include "framebuffer.hpp"
 #include "logger.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     std::vector<VkFramebuffer>
     createFramebuffers(LogicalDevice* pLogicalDevice, VkRenderPass renderPass, VkExtent2D& extent, std::vector<std::vector<VkImageView>> imageViews)
@@ -37,4 +37,4 @@ namespace vkShade
         }
         return framebuffers;
     }
-} // namespace vkShade
+} // namespace VKIntox

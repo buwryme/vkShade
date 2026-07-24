@@ -12,7 +12,7 @@
 #include "logical_device.hpp"
 #include "config.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
     // Parameter definition for built-in effects
     struct ParamDef
@@ -66,6 +66,6 @@ namespace vkShade
         std::map<std::string, BuiltInEffectDef> effects;
     };
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // BUILTIN_EFFECTS_HPP_INCLUDED

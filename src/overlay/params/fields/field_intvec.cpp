@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <string>
 
-namespace vkShade
+namespace VKIntox
 {
     // Robust int vector (ivec2/3/4) field editor with custom value input via right-click
     class IntVecFieldEditor : public FieldEditor
@@ -169,4 +169,4 @@ namespace vkShade
 
     REGISTER_FIELD_EDITOR(ParamType::IntVec, IntVecFieldEditor)
 
-} // namespace vkShade
+} // namespace VKIntox

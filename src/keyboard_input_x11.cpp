@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <cstring>
 
-namespace vkShade
+namespace VKIntox
 {
     static Display* kbDisplay = nullptr;
     static int xiOpcode = 0;
@@ -240,4 +240,4 @@ namespace vkShade
         return kbDisplay;
     }
 
-} // namespace vkShade
+} // namespace VKIntox

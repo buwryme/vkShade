@@ -2,7 +2,7 @@
 
 #include <wayland-client.h>
 
-namespace vkShade
+namespace VKIntox
 {
     // Shared Wayland input state — single wl_seat and event queue used by both
     // keyboard and mouse input backends. Avoids binding two separate seats and
@@ -42,4 +42,4 @@ namespace vkShade
     // first call after beginWaylandInputFrame() does real work.
     void dispatchWaylandInputEvents();
 
-} // namespace vkShade
+} // namespace VKIntox

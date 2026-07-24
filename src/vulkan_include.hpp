@@ -25,13 +25,13 @@
         return ret; \
     }
 #endif
-namespace vkShade
+namespace VKIntox
 {
     template<typename DispatchableType, typename SuperDispatchableType>
     inline void initializeDispatchTable(DispatchableType dispatchableObject, SuperDispatchableType source)
     {
         *reinterpret_cast<void**>(dispatchableObject) = *reinterpret_cast<void**>(source);
     }
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // VULKAN_INCLUDE_HPP_INCLUDED

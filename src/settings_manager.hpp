@@ -6,25 +6,25 @@
 
 #include "config_serializer.hpp"
 
-namespace vkShade
+namespace VKIntox
 {
-    // Single source of truth for all vkShade settings.
+    // Single source of truth for all VKIntox settings.
     // Similar to EffectRegistry for effect parameters.
     //
     // Usage:
     // - Call initialize() once at startup to load from config
     // - Read/write settings directly via getters/setters
-    // - Call save() to persist changes to vkShade.conf
+    // - Call save() to persist changes to VKIntox.conf
     class SettingsManager
     {
     public:
-        // Initialize from vkShade.conf (call once at startup)
+        // Initialize from VKIntox.conf (call once at startup)
         void initialize();
 
         // Check if already initialized
         bool isInitialized() const { return initialized; }
 
-        // Save current settings to vkShade.conf
+        // Save current settings to VKIntox.conf
         bool save();
 
         // Getters
@@ -74,6 +74,6 @@ namespace vkShade
     // Global settings manager instance (like effectRegistry)
     extern SettingsManager settingsManager;
 
-} // namespace vkShade
+} // namespace VKIntox
 
 #endif // SETTINGS_MANAGER_HPP_INCLUDED
