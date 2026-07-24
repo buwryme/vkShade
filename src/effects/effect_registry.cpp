@@ -643,9 +643,46 @@ namespace vkShade
 
     void EffectRegistry::removeEffect(const std::string& name)
     {
-        std::lock_guard<std::mutex> lock(mutex);
-        effects.remove_if(
-            [&](const EffectConfig& e) { return e.name == name; });
+        // Validate input
+        if (name.empty())
+        {
+            Logger::warn("EffectRegistry::removeEffect called with empty name");
+            return;
+        }
+
+        // Use try-catch for crash protection during removal
+        try
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+
+            // Log before removal for debugging
+            Logger::debug("EffectRegistry: removing effect '" + name + "'");
+
+            size_t sizeBefore = effects.size();
+            
+            effects.remove_if(
+                [&](const EffectConfig& e) { return e.name == name; });
+
+            size_t sizeAfter = effects.size();
+            
+            if (sizeBefore != sizeAfter)
+            {
+                Logger::info("EffectRegistry: removed effect '" + name + "' (" + 
+                            std::to_string(sizeBefore - sizeAfter) + " instance(s))");
+            }
+            else
+            {
+                Logger::debug("EffectRegistry: effect '" + name + "' not found for removal");
+            }
+        }
+        catch (const std::exception& e)
+        {
+            Logger::err("EffectRegistry::removeEffect exception for '" + name + "': " + e.what());
+        }
+        catch (...)
+        {
+            Logger::err("EffectRegistry::removeEffect unknown exception for '" + name + "'");
+        }
     }
 
     // Per-instance empty vector for returning when effect not found (avoids shared mutable static)

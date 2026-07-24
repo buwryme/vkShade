@@ -44,7 +44,6 @@ The base project required editing config files and restarting. vkShade adds:
 - **Debug window** — effect state, log viewer, error display
 - **Auto-apply** — changes apply after configurable delay
 - **Up to 200 effects** with VRAM estimates
-- **Safe Anti-Cheat mode** — per-profile toggle that blocks depth-using shaders and disables depth capture, keeping safe shaders like Vibrance usable
 - **Shader test tool** — batch-tests all `.fx` shaders for compilation errors and depth usage
 - **Graceful error handling** — failed effects show errors instead of crashing
 

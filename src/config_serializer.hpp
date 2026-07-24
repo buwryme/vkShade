@@ -67,7 +67,7 @@ namespace vkShade
     // Per-profile settings (stored in per-game .conf files)
     struct ProfileSettings
     {
-        bool safeAntiCheat = false;  // Force-disable depth capture for anti-cheat safety
+        // Profile settings (safeAntiCheat removed)
     };
 
     // Shader Manager configuration (from shader_manager.conf)

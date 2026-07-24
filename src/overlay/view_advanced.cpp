@@ -228,12 +228,6 @@ namespace vkShade
                                "Depth capture is OFF. Enable it in Settings (requires restart).");
             ImGui::Spacing();
         }
-        if (profileSafeAntiCheat)
-        {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                               "Safe Anti-Cheat active: depth capture forced off for this profile.");
-            ImGui::Spacing();
-        }
 
         // --- Active depth buffer info ---
         ImGui::Separator();

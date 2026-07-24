@@ -2032,18 +2032,6 @@ namespace vkShade
                 pConfig = pBaseConfig;
             }
 
-            // Enforce per-profile safe anti-cheat: override global depthCapture + hide layer
-            if (!activeProfilePath.empty())
-            {
-                ProfileSettings ps = ConfigSerializer::loadProfileSettings(activeProfilePath);
-                if (ps.safeAntiCheat)
-                {
-                    settingsManager.setSafeAntiCheat(true);
-                    settingsManager.setDepthCapture(false);
-                    Logger::info("safeAntiCheat enabled — depth capture forced off, layer hidden");
-                }
-            }
-
             // Initialize effect registry with current config
             effectRegistry.initialize(pConfig.get());
         });
@@ -5689,14 +5677,6 @@ namespace vkShade
 
     VkResult VKAPI_CALL vkShade_EnumerateInstanceLayerProperties(uint32_t* pPropertyCount, VkLayerProperties* pProperties)
     {
-        // When safe anti-cheat is active, hide the layer from enumeration
-        if (settingsManager.getSafeAntiCheat())
-        {
-            if (pPropertyCount)
-                *pPropertyCount = 0;
-            return VK_SUCCESS;
-        }
-
         if (pPropertyCount)
             *pPropertyCount = 1;
 

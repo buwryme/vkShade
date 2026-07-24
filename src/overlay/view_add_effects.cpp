@@ -28,9 +28,6 @@ namespace vkShade
         if (!pEffectRegistry)
             return;
 
-        if (profileSafeAntiCheat && !shaderTestComplete && !shaderTestRunning)
-            startShaderTest();
-
         std::vector<std::string> selectedEffects = pEffectRegistry->getSelectedEffects();
 
         // Handle ESC to clear search
@@ -73,14 +70,6 @@ namespace vkShade
         else
             ImGui::Text("Add Effects (max %zu)", maxEffectsLimit);
 
-        if (shaderTestRunning && profileSafeAntiCheat)
-        {
-            float progress = shaderTestQueue.empty() ? 1.0f :
-                static_cast<float>(shaderTestCurrentIndex) / static_cast<float>(shaderTestQueue.size());
-            ImGui::ProgressBar(progress, ImVec2(-1, 0),
-                ("Checking shaders " + std::to_string(shaderTestCurrentIndex) + "/" +
-                 std::to_string(shaderTestQueue.size())).c_str());
-        }
         ImGui::Separator();
 
         size_t currentCount = selectedEffects.size();
@@ -110,43 +99,15 @@ namespace vkShade
             return effectType + ".99";
         };
 
-        // Pre-filter all effects to know if there are any matches before calling
-        // isDepthEffect (which can trigger synchronous shader compilation).
+        // Pre-filter all effects to know if there are any matches
         auto shouldShow = [&](const std::string& effectType) -> bool {
             return matchesSearch(effectType, addEffectsSearch);
         };
 
-        // Check if an effect uses depth — only relevant when safe anti-cheat is on.
-        // NOT called when the search is active but has zero matches (avoids
-        // redundant shader compilation on an empty list).
-        auto isDepthEffect = [&](const std::string& effectType) -> bool {
-            if (!profileSafeAntiCheat)
-                return false;
-            static const std::set<std::string> safeBuiltins = {"cas", "dls", "fxaa", "smaa", "deband", "lut"};
-            if (safeBuiltins.count(effectType))
-                return false;
-            if (depthShaders.count(effectType))
-                return true;
-            if (checkedShaders.count(effectType) || shaderTestComplete)
-                return false;
-            auto it = state.effectPaths.find(effectType);
-            if (it == state.effectPaths.end())
-                return false;
-            checkedShaders.insert(effectType);
-            ShaderManagerConfig smConfig = ConfigSerializer::loadShaderManagerConfig();
-            if (checkShaderUsesDepth(effectType, it->second, smConfig.discoveredShaderPaths))
-            {
-                depthShaders.insert(effectType);
-                return true;
-            }
-            return false;
-        };
-
         auto renderAddButton = [&](const std::string& effectType, const std::string& tooltip = "") {
             bool atLimit = totalCount >= maxEffectsLimit;
-            bool depthBlocked = profileSafeAntiCheat && isDepthEffect(effectType);
 
-            if (atLimit || depthBlocked)
+            if (atLimit)
                 ImGui::BeginDisabled();
 
             if (ImGui::Button(effectType.c_str(), ImVec2(-1, 0)))
@@ -157,13 +118,13 @@ namespace vkShade
 
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-                if (depthBlocked)
-                    ImGui::SetTooltip("Requires depth buffer (blocked by Safe Anti-Cheat)");
+                if (atLimit)
+                    ImGui::SetTooltip("Maximum effects limit reached");
                 else if (!tooltip.empty())
                     ImGui::SetTooltip("%s", tooltip.c_str());
             }
 
-            if (atLimit || depthBlocked)
+            if (atLimit)
                 ImGui::EndDisabled();
         };
 
@@ -227,7 +188,7 @@ namespace vkShade
                 ImGui::Text("ReShade (%s):", state.configName.c_str());
             for (const auto& et : sortedCurrentConfig)
             {
-                if (!shouldShow(et))
+                if (shouldShow(et))
                     continue;
                 auto it = state.effectPaths.find(et);
                 std::string path = (it != state.effectPaths.end()) ? it->second : "";
@@ -247,7 +208,7 @@ namespace vkShade
                 ImGui::Text("ReShade (all):");
             for (const auto& et : sortedDefaultConfig)
             {
-                if (!shouldShow(et))
+                if (shouldShow(et))
                     continue;
                 // Skip if already shown in current config
                 if (std::find(sortedCurrentConfig.begin(), sortedCurrentConfig.end(), et) != sortedCurrentConfig.end())

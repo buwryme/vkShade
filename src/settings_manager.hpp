@@ -38,7 +38,6 @@ namespace vkShade
         bool getAutoApply() const { return settings.autoApply; }
         int getAutoApplyDelay() const { return settings.autoApplyDelay; }
         bool getShowDebugWindow() const { return settings.showDebugWindow; }
-        bool getSafeAntiCheat() const { return safeAntiCheat; }
         int getDepthResolveMode() const { return settings.depthResolveMode; }
         const std::string& getDepthManualPin() const { return settings.depthManualPin; }
         bool getDepthTransientWorkaround() const { return settings.depthTransientWorkaround; }
@@ -57,7 +56,6 @@ namespace vkShade
         void setAutoApply(bool value) { settings.autoApply = value; }
         void setAutoApplyDelay(int value) { settings.autoApplyDelay = value; }
         void setShowDebugWindow(bool value) { settings.showDebugWindow = value; }
-        void setSafeAntiCheat(bool value) { safeAntiCheat = value; }
         void setDepthResolveMode(int value) { settings.depthResolveMode = value; }
         void setDepthManualPin(const std::string& value) { settings.depthManualPin = value; }
         void setDepthTransientWorkaround(bool value) { settings.depthTransientWorkaround = value; }
@@ -71,7 +69,6 @@ namespace vkShade
     private:
         VkBasaltSettings settings;
         bool initialized = false;
-        bool safeAntiCheat = false; // Runtime flag: layer hiding active
     };
 
     // Global settings manager instance (like effectRegistry)

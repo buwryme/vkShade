@@ -104,8 +104,23 @@ mkdir -p "$SHADERS_DIR" "$TEXTURES_DIR"
 success "Created $SHADERS_DIR"
 success "Created $TEXTURES_DIR"
 
+# ─── Install Font ────────────────────────────────────────────────────
+FONT_DIR="$SOBER_CONFIG/font"
+mkdir -p "$FONT_DIR"
+
+# Copy font from the Flatpak app's assets (if available) or skip
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/assets/font/GoogleSansFlex.ttf" ]; then
+    cp "$SCRIPT_DIR/assets/font/GoogleSansFlex.ttf" "$FONT_DIR/"
+    success "Installed GoogleSansFlex.ttf to $FONT_DIR"
+fi
+if [ -f "$SCRIPT_DIR/assets/font/LICENSE" ]; then
+    cp "$SCRIPT_DIR/assets/font/LICENSE" "$FONT_DIR/"
+    success "Installed font LICENSE to $FONT_DIR"
+fi
+
 info "Fetching shader package list..."
-if ! curl -sL "$SHADER_LIST_URL" -o "$TEMP_DIR/packages.ini"; then
+if ! curl -sL --fail "$SHADER_LIST_URL" -o "$TEMP_DIR/packages.ini"; then
     error "Failed to fetch shader package list"
     rm -rf "$TEMP_DIR"
     exit 1
@@ -151,13 +166,22 @@ install_shader_package() {
         fi
     fi
 
+    # handle when something goes wrong
+    if [[ -z "$target_shader_dir" && -z "$target_texture_dir" ]]; then
+        printf "\r  ${YELLOW}[%2d/%d] %-52s SKIPPED (unmatched path: %s)${NC}\n" \
+            "$idx" "$total" "$name" "${win_shader_path:-$win_texture_path}"
+        FAILED_PACKAGES+=("$name (unmatched install path)")
+        return 1
+    fi
+
     local pkg_temp="$TEMP_DIR/pkg_${idx}_$RANDOM"
     mkdir -p "$pkg_temp"
 
-    # Download
-    if ! curl -sL --max-time 120 "$url" -o "$pkg_temp/archive.zip" 2>/dev/null; then
+    # Download — --fail makes curl return nonzero on HTTP 4xx/5xx instead of
+    # silently saving an error page as the "archive"
+    if ! curl -sL --fail --max-time 120 "$url" -o "$pkg_temp/archive.zip" 2>/dev/null; then
         printf "\r  ${RED}[%2d/%d] %-52s FAILED (download)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name")
+        FAILED_PACKAGES+=("$name (download failed)")
         rm -rf "$pkg_temp"
         return 1
     fi
@@ -165,7 +189,7 @@ install_shader_package() {
     # Validate zip
     if ! unzip -t "$pkg_temp/archive.zip" &>/dev/null; then
         printf "\r  ${RED}[%2d/%d] %-52s FAILED (invalid zip)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name")
+        FAILED_PACKAGES+=("$name (invalid zip)")
         rm -rf "$pkg_temp"
         return 1
     fi
@@ -173,29 +197,41 @@ install_shader_package() {
     # Extract
     if ! unzip -qo "$pkg_temp/archive.zip" -d "$pkg_temp/src" 2>/dev/null; then
         printf "\r  ${RED}[%2d/%d] %-52s FAILED (extract)${NC}\n" "$idx" "$total" "$name"
-        FAILED_PACKAGES+=("$name")
+        FAILED_PACKAGES+=("$name (extract failed)")
         rm -rf "$pkg_temp"
         return 1
     fi
 
-    # Copy shaders (.fx files)
+    # Copy shaders (.fx files) — count what actually got copied
+    local copied_shaders=0
+    local copied_textures=0
+
     if [[ -n "$target_shader_dir" ]]; then
         mkdir -p "$target_shader_dir"
-        find "$pkg_temp/src" -name "*.fx" -type f -exec cp -f {} "$target_shader_dir/" \; 2>/dev/null || true
+        copied_shaders=$(find "$pkg_temp/src" -name "*.fx" -type f -exec cp -f {} "$target_shader_dir/" \; -print 2>/dev/null | wc -l)
     fi
 
-    # Copy textures (common image formats used by ReShade)
+    # Copy textures
     if [[ -n "$target_texture_dir" ]]; then
         mkdir -p "$target_texture_dir"
-        find "$pkg_temp/src" -type f \( \
+        copied_textures=$(find "$pkg_temp/src" -type f \( \
             -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o \
             -name "*.dds" -o -name "*.tga" -o -name "*.bmp" -o \
             -name "*.hdr" -o -name "*.exr" \) \
-            -exec cp -f {} "$target_texture_dir/" \; 2>/dev/null || true
+            -exec cp -f {} "$target_texture_dir/" \; -print 2>/dev/null | wc -l)
     fi
 
     rm -rf "$pkg_temp"
-    printf "\r  ${GREEN}[%2d/%d] %-52s OK${NC}\n" "$idx" "$total" "$name"
+
+    # If we had a target dir but copied nothing, that's a silent failure — surface it
+    if [[ "$copied_shaders" -eq 0 && "$copied_textures" -eq 0 ]]; then
+        printf "\r  ${YELLOW}[%2d/%d] %-52s WARN (0 files found in archive)${NC}\n" "$idx" "$total" "$name"
+        FAILED_PACKAGES+=("$name (archive contained no matching files)")
+        return 1
+    fi
+
+    printf "\r  ${GREEN}[%2d/%d] %-52s OK (%d shaders, %d textures)${NC}\n" \
+        "$idx" "$total" "$name" "$copied_shaders" "$copied_textures"
     return 0
 }
 
@@ -253,7 +289,7 @@ texture_count=$(find "$TEXTURES_DIR" -type f 2>/dev/null | wc -l)
 if [[ ${#FAILED_PACKAGES[@]} -eq 0 ]]; then
     success "All $total_packages shader packages installed"
 else
-    warn "${#FAILED_PACKAGES[@]} package(s) failed:"
+    warn "${#FAILED_PACKAGES[@]} of $total_packages package(s) failed:"
     for pkg in "${FAILED_PACKAGES[@]}"; do
         echo -e "    ${DIM}• $pkg${NC}"
     done

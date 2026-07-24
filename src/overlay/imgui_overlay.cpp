@@ -132,133 +132,117 @@ namespace vkShade
         if (!iniContent.empty())
             ImGui::LoadIniSettingsFromDisk(iniPath.c_str());
 
-        // ── Material Design 3 inspired styling ──────────────────────────
+        // ── Material Design 3 Expressive Styling (Monochrome) ──────────
         ImGui::StyleColorsDark();
         ImGuiStyle& style = ImGui::GetStyle();
 
-        // MD3 colour tokens (dark theme, tonal surface)
-        ImVec4 md3Surface        = ImVec4(0.12f, 0.12f, 0.16f, 0.82f);
-        ImVec4 md3SurfaceDim     = ImVec4(0.08f, 0.08f, 0.10f, 0.90f);
-        ImVec4 md3Primary        = ImVec4(0.62f, 0.36f, 1.00f, 1.00f);  // purple accent
-        ImVec4 md3OnSurface      = ImVec4(0.92f, 0.90f, 0.96f, 1.00f);
-        ImVec4 md3OnSurfaceVar   = ImVec4(0.72f, 0.70f, 0.76f, 1.00f);
-        ImVec4 md3Outline        = ImVec4(0.40f, 0.38f, 0.44f, 0.60f);
-        ImVec4 md3OutlineVariant = ImVec4(0.28f, 0.26f, 0.32f, 0.50f);
+        // MD3 Expressive colour tokens (monochrome dark theme)
+        ImVec4 md3Surface        = ImVec4(0.12f, 0.12f, 0.16f, 0.92f);   // Elevated surface
+        ImVec4 md3SurfaceDim     = ImVec4(0.08f, 0.08f, 0.10f, 0.95f);   // Dim surface
+        ImVec4 md3Primary        = ImVec4(0.98f, 0.98f, 0.98f, 1.00f);   // WHITE accent (not purple!)
+        ImVec4 md3PrimaryDim     = ImVec4(0.82f, 0.82f, 0.84f, 1.00f);   // Dimmed white
+        ImVec4 md3OnSurface      = ImVec4(0.94f, 0.93f, 0.96f, 1.00f);   // Text on surface
+        ImVec4 md3OnSurfaceVar   = ImVec4(0.68f, 0.67f, 0.70f, 1.00f);   // Variant text
+        ImVec4 md3Outline        = ImVec4(0.42f, 0.41f, 0.46f, 0.55f);   // Outline
+        ImVec4 md3OutlineVariant = ImVec4(0.28f, 0.27f, 0.32f, 0.45f);   // Subtle outline
 
-        style.Alpha               = 0.92f;
-        style.WindowPadding       = ImVec2(16, 14);
-        style.FramePadding        = ImVec2(12, 7);
-        style.ItemSpacing         = ImVec2(8, 6);
-        style.ItemInnerSpacing    = ImVec2(6, 4);
-        style.IndentSpacing       = 20.0f;
-        style.ScrollbarSize       = 10.0f;
-        style.GrabMinSize         = 10.0f;
+        // MD3 Expressive: larger rounding for friendly, modern feel
+        style.Alpha               = 0.95f;
+        style.WindowPadding       = ImVec2(20, 16);
+        style.FramePadding        = ImVec2(14, 8);
+        style.ItemSpacing         = ImVec2(10, 8);
+        style.ItemInnerSpacing    = ImVec2(8, 5);
+        style.IndentSpacing       = 24.0f;
+        style.ScrollbarSize       = 12.0f;
+        style.GrabMinSize         = 12.0f;
 
-        // MD3 roundness (12 dp for cards, 28 dp for FABs, 16 dp for dialogs)
-        style.WindowRounding      = 16.0f;
-        style.ChildRounding       = 12.0f;
-        style.FrameRounding       = 12.0f;
-        style.PopupRounding       = 12.0f;
-        style.ScrollbarRounding   = 6.0f;
-        style.GrabRounding        = 8.0f;
-        style.TabRounding         = 12.0f;
+        // MD3 Expressive roundness (more rounded than standard MD3)
+        style.WindowRounding      = 20.0f;   // Very rounded windows
+        style.ChildRounding       = 16.0f;   // Rounded child areas
+        style.FrameRounding       = 14.0f;   // Rounded frames
+        style.PopupRounding       = 16.0f;   // Rounded popups
+        style.ScrollbarRounding   = 8.0f;    // Rounded scrollbar
+        style.GrabRounding        = 10.0f;   // Rounded grab handles
+        style.TabRounding         = 14.0f;   // Rounded tabs
 
-        // MD3 border
+        // No borders - MD3 uses elevation instead
         style.WindowBorderSize   = 0.0f;
         style.ChildBorderSize    = 0.0f;
-        style.PopupBorderSize    = 0.0f;
+        style.PopupBorderSize    = 0.5f;
         style.FrameBorderSize    = 0.0f;
         style.TabBorderSize      = 0.0f;
 
-        // Colours
+        // Colour scheme - WHITE accent on dark surfaces
         style.Colors[ImGuiCol_WindowBg]           = md3Surface;
         style.Colors[ImGuiCol_ChildBg]            = md3SurfaceDim;
-        style.Colors[ImGuiCol_PopupBg]            = md3SurfaceDim;
+        style.Colors[ImGuiCol_PopupBg]            = ImVec4(0.14f, 0.14f, 0.18f, 0.96f);
         style.Colors[ImGuiCol_Border]             = md3OutlineVariant;
-        style.Colors[ImGuiCol_FrameBg]            = ImVec4(0.16f, 0.16f, 0.20f, 0.60f);
-        style.Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.22f, 0.22f, 0.28f, 0.70f);
-        style.Colors[ImGuiCol_FrameBgActive]      = ImVec4(0.26f, 0.26f, 0.32f, 0.80f);
+        style.Colors[ImGuiCol_FrameBg]            = ImVec4(0.18f, 0.18f, 0.22f, 0.65f);
+        style.Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.24f, 0.24f, 0.28f, 0.75f);
+        style.Colors[ImGuiCol_FrameBgActive]      = ImVec4(0.30f, 0.30f, 0.34f, 0.85f);
         style.Colors[ImGuiCol_TitleBg]            = md3Surface;
-        style.Colors[ImGuiCol_TitleBgActive]      = md3Surface;
-        style.Colors[ImGuiCol_TitleBgCollapsed]   = ImVec4(0.10f, 0.10f, 0.12f, 0.60f);
-        style.Colors[ImGuiCol_MenuBarBg]          = ImVec4(0.14f, 0.14f, 0.18f, 0.90f);
-        style.Colors[ImGuiCol_ScrollbarBg]        = ImVec4(0.06f, 0.06f, 0.08f, 0.40f);
+        style.Colors[ImGuiCol_TitleBgActive]      = ImVec4(0.15f, 0.15f, 0.19f, 0.95f);
+        style.Colors[ImGuiCol_TitleBgCollapsed]   = ImVec4(0.10f, 0.10f, 0.13f, 0.65f);
+        style.Colors[ImGuiCol_MenuBarBg]          = ImVec4(0.14f, 0.14f, 0.18f, 0.92f);
+        style.Colors[ImGuiCol_ScrollbarBg]        = ImVec4(0.06f, 0.06f, 0.08f, 0.45f);
         style.Colors[ImGuiCol_ScrollbarGrab]      = md3Outline;
         style.Colors[ImGuiCol_ScrollbarGrabHovered] = md3OnSurfaceVar;
         style.Colors[ImGuiCol_ScrollbarGrabActive]  = md3Primary;
         style.Colors[ImGuiCol_CheckMark]          = md3Primary;
         style.Colors[ImGuiCol_SliderGrab]         = md3Primary;
-        style.Colors[ImGuiCol_SliderGrabActive]   = ImVec4(0.72f, 0.48f, 1.00f, 1.00f);
-        style.Colors[ImGuiCol_Button]             = ImVec4(0.20f, 0.20f, 0.26f, 0.80f);
-        style.Colors[ImGuiCol_ButtonHovered]      = ImVec4(0.28f, 0.28f, 0.36f, 0.85f);
-        style.Colors[ImGuiCol_ButtonActive]       = md3Primary;
-        style.Colors[ImGuiCol_Header]             = ImVec4(0.20f, 0.20f, 0.26f, 0.70f);
-        style.Colors[ImGuiCol_HeaderHovered]      = ImVec4(0.26f, 0.26f, 0.34f, 0.80f);
-        style.Colors[ImGuiCol_HeaderActive]       = ImVec4(0.30f, 0.30f, 0.38f, 0.90f);
+        style.Colors[ImGuiCol_SliderGrabActive]   = md3OnSurface;
+        style.Colors[ImGuiCol_Button]             = ImVec4(0.22f, 0.22f, 0.26f, 0.80f);
+        style.Colors[ImGuiCol_ButtonHovered]      = ImVec4(0.30f, 0.30f, 0.36f, 0.88f);
+        style.Colors[ImGuiCol_ButtonActive]       = ImVec4(0.38f, 0.38f, 0.44f, 0.95f);
+        style.Colors[ImGuiCol_Header]             = ImVec4(0.22f, 0.22f, 0.26f, 0.72f);
+        style.Colors[ImGuiCol_HeaderHovered]      = ImVec4(0.28f, 0.28f, 0.34f, 0.82f);
+        style.Colors[ImGuiCol_HeaderActive]       = ImVec4(0.34f, 0.34f, 0.40f, 0.90f);
         style.Colors[ImGuiCol_Separator]          = md3OutlineVariant;
         style.Colors[ImGuiCol_SeparatorHovered]   = md3OnSurfaceVar;
-        style.Colors[ImGuiCol_SeparatorActive]    = md3Primary;
-        style.Colors[ImGuiCol_ResizeGrip]         = ImVec4(0.26f, 0.26f, 0.34f, 0.30f);
-        style.Colors[ImGuiCol_ResizeGripHovered]  = ImVec4(0.36f, 0.36f, 0.46f, 0.60f);
-        style.Colors[ImGuiCol_ResizeGripActive]   = md3Primary;
-        style.Colors[ImGuiCol_Tab]                = ImVec4(0.16f, 0.16f, 0.20f, 0.80f);
-        style.Colors[ImGuiCol_TabHovered]         = ImVec4(0.24f, 0.24f, 0.30f, 0.90f);
-        style.Colors[ImGuiCol_TabSelected]        = ImVec4(0.22f, 0.22f, 0.28f, 1.00f);
-        style.Colors[ImGuiCol_TabDimmed]          = ImVec4(0.12f, 0.12f, 0.16f, 0.60f);
-        style.Colors[ImGuiCol_TabDimmedSelected]   = ImVec4(0.18f, 0.18f, 0.22f, 0.90f);
-        style.Colors[ImGuiCol_DockingPreview]     = md3Primary;
+        style.Colors[ImGuiCol_SeparatorActive]    = md3PrimaryDim;
+        style.Colors[ImGuiCol_ResizeGrip]         = ImVec4(0.28f, 0.28f, 0.34f, 0.35f);
+        style.Colors[ImGuiCol_ResizeGripHovered]  = ImVec4(0.38f, 0.38f, 0.46f, 0.65f);
+        style.Colors[ImGuiCol_ResizeGripActive]   = md3PrimaryDim;
+        style.Colors[ImGuiCol_Tab]                = ImVec4(0.18f, 0.18f, 0.22f, 0.82f);
+        style.Colors[ImGuiCol_TabHovered]         = ImVec4(0.26f, 0.26f, 0.30f, 0.92f);
+        style.Colors[ImGuiCol_TabSelected]        = ImVec4(0.24f, 0.24f, 0.28f, 1.00f);
+        style.Colors[ImGuiCol_TabDimmed]          = ImVec4(0.13f, 0.13f, 0.16f, 0.62f);
+        style.Colors[ImGuiCol_TabDimmedSelected]   = ImVec4(0.19f, 0.19f, 0.23f, 0.92f);
+        style.Colors[ImGuiCol_DockingPreview]     = md3PrimaryDim;
         style.Colors[ImGuiCol_DockingEmptyBg]     = ImVec4(0.08f, 0.08f, 0.10f, 0.60f);
-        style.Colors[ImGuiCol_TextSelectedBg]     = ImVec4(0.62f, 0.36f, 1.00f, 0.35f);
-        style.Colors[ImGuiCol_NavWindowingHighlight] = md3Primary;
+        style.Colors[ImGuiCol_TextSelectedBg]     = ImVec4(0.90f, 0.90f, 0.92f, 0.40f);
+        style.Colors[ImGuiCol_NavWindowingHighlight] = md3PrimaryDim;
         style.Colors[ImGuiCol_Text]               = md3OnSurface;
-        style.Colors[ImGuiCol_TextDisabled]       = ImVec4(0.38f, 0.38f, 0.42f, 1.00f);
+        style.Colors[ImGuiCol_TextDisabled]       = ImVec4(0.42f, 0.41f, 0.46f, 1.00f);
 
-        // ── Font: Google Sans Flex with fallback chain ─────────────────
-        // Priority: bundled → system paths → ImGui default
-        static const char* fontSearchPaths[] = {
-            "/usr/share/fonts/truetype/google-sans-flex/GoogleSansFlex-Regular.ttf",
-            "/usr/share/fonts/google-sans-flex/GoogleSansFlex-Regular.ttf",
-            "/usr/local/share/fonts/google-sans-flex/GoogleSansFlex-Regular.ttf",
-            "/usr/share/fonts/TTF/GoogleSansFlex-Regular.ttf",
-            "~/.local/share/fonts/GoogleSansFlex-Regular.ttf",
-            "GoogleSansFlex-Regular.ttf",   // cwd / flatpak sandbox
-        };
-        static const char* fontBoldPaths[] = {
-            "/usr/share/fonts/truetype/google-sans-flex/GoogleSansFlex-Medium.ttf",
-            "/usr/share/fonts/google-sans-flex/GoogleSansFlex-Medium.ttf",
-            "/usr/local/share/fonts/google-sans-flex/GoogleSansFlex-Medium.ttf",
-            "/usr/share/fonts/TTF/GoogleSansFlex-Medium.ttf",
-            "~/.local/share/fonts/GoogleSansFlex-Medium.ttf",
-            "GoogleSansFlex-Medium.ttf",
+        // Font loading
+        std::string baseConfigDir = ConfigSerializer::getBaseConfigDir();
+        std::vector<std::pair<std::string, std::string>> fontSearchPaths = {
+            {baseConfigDir + "/font/GoogleSansFlex.ttf", "Config directory"}
         };
 
         const char* regularPath = nullptr;
-        const char* boldPath   = nullptr;
-        for (const char* p : fontSearchPaths)
+        for (const auto& [path, desc] : fontSearchPaths)
         {
-            if (std::ifstream(p).good()) { regularPath = p; break; }
-        }
-        for (const char* p : fontBoldPaths)
-        {
-            if (std::ifstream(p).good()) { boldPath = p; break; }
+            if (std::ifstream(path).good()) { regularPath = strdup(path.c_str()); break; }
         }
 
         ImFontConfig fontCfg;
-        fontCfg.OversampleH       = 2;   // subpixel antialiasing
-        fontCfg.OversampleV       = 1;
-        fontCfg.PixelSnapH        = true;
+        fontCfg.SizePixels = 14.5;
+        fontCfg.OversampleH = 2;
+        fontCfg.OversampleV = 1;
+        fontCfg.PixelSnapH = true;
 
         if (regularPath)
         {
             io.Fonts->Clear();
-            io.Fonts->AddFontFromFileTTF(regularPath, 15.0f, &fontCfg);
-            if (boldPath)
-                io.Fonts->AddFontFromFileTTF(boldPath, 15.0f, &fontCfg);
+            io.Fonts->AddFontFromFileTTF(regularPath, 14.5f, &fontCfg);
             Logger::info("ImGui: loaded Google Sans Flex from " + std::string(regularPath));
+            free((void*)regularPath);
         }
         else
         {
-            Logger::info("ImGui: Google Sans Flex not found, using default font");
+            Logger::warn("ImGui: Google Sans Flex not found - using default font");
         }
 
         initVulkanBackend(swapchainFormat, imageCount);
@@ -351,41 +335,6 @@ namespace vkShade
                 pEffectRegistry->ensureEffect(effectName);
         }
         // No editableParams merging needed - Registry IS the source of truth
-
-        // If Safe Anti-Cheat is active, disable any depth-using effects in the selection
-        if (profileSafeAntiCheat)
-            disableDepthEffects();
-    }
-
-    void ImGuiOverlay::disableDepthEffects()
-    {
-        if (!pEffectRegistry)
-            return;
-
-        ShaderManagerConfig smConfig = ConfigSerializer::loadShaderManagerConfig();
-        const auto& selectedEffects = pEffectRegistry->getSelectedEffects();
-
-        for (const auto& effectName : selectedEffects)
-        {
-            auto it = state.effectPaths.find(effectName);
-            if (it == state.effectPaths.end())
-                continue;
-
-            bool usesDepth = depthShaders.count(effectName) > 0;
-            if (!usesDepth && !shaderTestComplete)
-            {
-                if (checkShaderUsesDepth(effectName, it->second, smConfig.discoveredShaderPaths))
-                {
-                    depthShaders.insert(effectName);
-                    usesDepth = true;
-                }
-            }
-            if (usesDepth && pEffectRegistry->isEffectEnabled(effectName))
-            {
-                pEffectRegistry->setEffectEnabled(effectName, false);
-                Logger::info("Safe Anti-Cheat: disabled depth effect '" + effectName + "'");
-            }
-        }
     }
 
     std::vector<std::unique_ptr<EffectParam>> ImGuiOverlay::getModifiedParams()
@@ -494,7 +443,7 @@ namespace vkShade
         collectSaveData(effects, disabledEffects, params, effectPaths, allDefs);
 
         ProfileSettings profileSettings;
-        profileSettings.safeAntiCheat = profileSafeAntiCheat;
+        // safeAntiCheat removed
 
         if (ConfigSerializer::saveToPath(activeProfilePath, effects, disabledEffects, params, effectPaths, allDefs, profileSettings))
         {

@@ -136,14 +136,7 @@ namespace vkShade
 
                             // Load per-profile settings for the new profile
                             ProfileSettings ps = ConfigSerializer::loadProfileSettings(activeProfilePath);
-                            profileSafeAntiCheat = ps.safeAntiCheat;
-                            settingsManager.setSafeAntiCheat(profileSafeAntiCheat);
-                            if (profileSafeAntiCheat)
-                            {
-                                settingsManager.setDepthCapture(false);
-                                // Depth effects will be disabled after reload completes
-                                // (the new config hasn't loaded yet — pendingConfigPath triggers reload)
-                            }
+                            // Profile settings loaded (safeAntiCheat removed)
                         }
                     }
                     if (selected)
@@ -218,36 +211,7 @@ namespace vkShade
                 ImGui::EndPopup();
             }
 
-            // Safe Anti-Cheat toggle (per-profile)
-            if (ImGui::Checkbox("Safe Anti-Cheat", &profileSafeAntiCheat))
-            {
-                settingsManager.setSafeAntiCheat(profileSafeAntiCheat);
-                if (profileSafeAntiCheat)
-                {
-                    settingsManager.setDepthCapture(false);
-                    disableDepthEffects();
-                    paramsDirty = true;
-                }
-                profileDirty = true;
-                lastChangeTime = std::chrono::steady_clock::now();
-            }
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::BeginTooltip();
-                ImGui::Text("Force-disable depth buffer capture for this profile.");
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "When enabled:");
-                ImGui::BulletText("Layer hidden from Vulkan enumeration queries");
-                ImGui::BulletText("Depth buffer access is disabled (no wallhack capability)");
-                ImGui::BulletText("Only color post-processing effects work (sharpening, color grading, etc.)");
-                ImGui::BulletText("Depth-using effects are auto-disabled and hidden from Add Effects");
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
-                    "The layer becomes invisible to the application — it cannot detect\n"
-                    "vkShade via vkEnumerateInstanceLayerProperties or similar queries.\n"
-                    "Only pixel colors are modified. Completely non-intrusive.");
-                ImGui::EndTooltip();
-            }
+
         }
         else
         {
@@ -418,6 +382,7 @@ namespace vkShade
                     if (removeIt == selectedEffects.end())
                     {
                         ImGui::EndPopup();
+                        if (treeOpen) ImGui::TreePop();
                         ImGui::PopID();
                         break;
                     }
@@ -430,6 +395,8 @@ namespace vkShade
                     applyRequested = true;
                     profileDirty = true;
                     ImGui::EndPopup();
+                    // CRITICAL: Must TreePop before break if tree was opened, else assertion failure
+                    if (treeOpen) ImGui::TreePop();
                     ImGui::PopID();
                     break;  // Iterator invalidated — exit loop safely
                 }

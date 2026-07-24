@@ -826,9 +826,7 @@ namespace vkShade
             };
             trim(key);
             trim(value);
-
-            if (key == "safeAntiCheat")
-                settings.safeAntiCheat = (value == "true" || value == "on" || value == "1");
+            // Profile settings parsing (safeAntiCheat removed)
         }
 
         return settings;
@@ -852,9 +850,7 @@ namespace vkShade
             return false;
         }
 
-        // Write per-profile settings
-        if (profileSettings.safeAntiCheat)
-            file << "safeAntiCheat = true\n\n";
+        // Write per-profile settings (safeAntiCheat removed)
 
         // Group params by effect
         std::map<std::string, std::vector<const ConfigParam*>> paramsByEffect;

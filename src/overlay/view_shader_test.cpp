@@ -163,7 +163,7 @@ namespace vkShade
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(0.4f, 0.7f, 1.0f, 1.0f), "(%d use depth)", depthCount);
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("These shaders require depth buffer access.\nBlocked when Safe Anti-Cheat is enabled.");
+                    ImGui::SetTooltip("These shaders require depth buffer access.");
             }
 
             // Show duplicate warning if any were skipped
@@ -259,7 +259,7 @@ namespace vkShade
                 ImGui::TreePop();
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("These shaders require depth buffer access.\nBlocked when Safe Anti-Cheat is enabled.");
+                ImGui::SetTooltip("These shaders require depth buffer access.");
         }
 
         // Show passed shaders (excluding depth shaders — they have their own section)
